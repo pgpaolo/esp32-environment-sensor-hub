@@ -4,7 +4,10 @@
 void SensorHub::beginNesaSensors() {
   beginNesaTa();
   beginNesaRsg1();
-  sampleNesaSensors();
+  // Sample only the interfaces that initialized successfully. Failed
+  // interfaces are retried by sampleNesaSensors() on the next sensor cycle.
+  sampleNesaTa();
+  sampleNesaRsg1();
 }
 
 void SensorHub::beginNesaTa() {
