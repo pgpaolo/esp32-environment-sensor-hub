@@ -6,11 +6,12 @@ Firmware PlatformIO/Arduino per un nodo ambientale ESP32 dedicato a sensori loca
 
 Versione firmware corrente: **v0.7.3**.
 
-La build `esp32dev` è verificata da GitHub Actions. Dopo il controllo generale del codice la build di riferimento è:
+Controllo generale completato sul branch `main`: build PlatformIO `esp32dev` **SUCCESS** sull'HEAD verificato.
 
-- RAM statica: **51.060 byte / 327.680 byte (15,6%)**;
-- flash applicativa: **1.135.421 byte / 1.966.080 byte (57,8%)**;
-- risultato: **SUCCESS**.
+- RAM statica: **51.060 / 327.680 byte (15,6%)**;
+- flash applicativa: **1.135.421 / 1.966.080 byte (57,8%)**.
+
+La CI compila automaticamente il progetto ad ogni push.
 
 ## Sensori supportati
 
@@ -62,7 +63,7 @@ La v0.7.3 include una revisione completa di memoria, configurazione, MQTT e fail
 - JSON Web serializzato direttamente sul client HTTP;
 - diagnostica heap: libero, minimo, largest free block e frammentazione indicativa;
 - buffer JSON MQTT riutilizzato fra le pubblicazioni per ridurre churn/frammentazione heap;
-- schema NVS versionato (`cfgver = 1`) e validazione dopo il caricamento congiunto dei namespace principale e NESA;
+- schema NVS versionato (`cfgver = 1`) nel namespace principale e validazione finale dell'oggetto configurazione dopo il caricamento del namespace NESA;
 - validazione di GPIO, enum, offset, indirizzi I2C, intervalli e collisione INA219/ADS1115;
 - MQTT con LWT retained, statistiche separate e backoff fino a 60 s;
 - password Wi-Fi/MQTT/Web e CA MQTT mai restituite dalla Web UI;
@@ -118,7 +119,7 @@ sensorhub
 sensorhub_nesa
 ```
 
-Schema corrente: **1**. Le configurazioni precedenti vengono caricate con i default per le nuove chiavi, validate e migrate automaticamente. Dopo il caricamento dei due namespace viene eseguita una seconda validazione dell'insieme completo per intercettare anche conflitti fra configurazione principale e NESA.
+Lo schema logico corrente è **1**. La chiave `cfgver` è salvata nel namespace principale `sensorhub`; dopo il caricamento dei parametri NESA viene eseguita una seconda validazione dell'oggetto completo e le eventuali correzioni vengono persistite nei rispettivi namespace.
 
 ## MQTT
 
@@ -142,7 +143,7 @@ Vedere [`docs/MQTT.md`](docs/MQTT.md).
 - [`docs/MQTT.md`](docs/MQTT.md) — topic, payload e diagnostica MQTT;
 - [`docs/API.md`](docs/API.md) — endpoint Web/API e OTA;
 - [`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md) — memoria, PROGMEM, versioning e fail-safe;
-- [`docs/VERIFICATION.md`](docs/VERIFICATION.md) — checklist di verifica generale v0.7.3;
+- [`docs/VERIFICATION.md`](docs/VERIFICATION.md) — checklist del controllo generale v0.7.3;
 - [`CHANGELOG.md`](CHANGELOG.md) — cronologia delle revisioni principali.
 
 ## Credenziali Wi-Fi locali
