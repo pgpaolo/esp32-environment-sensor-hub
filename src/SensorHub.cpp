@@ -9,6 +9,8 @@ SensorHub::SensorHub() : _sdsSerial(Serial2), _sds(Serial2) {}
 SensorHub::~SensorHub() {
   if (_dht) delete _dht;
   if (_ina) delete _ina;
+  if (_nesaTa) delete _nesaTa;
+  if (_nesaRsg1) delete _nesaRsg1;
   if (_lightning) delete _lightning;
 }
 
@@ -60,8 +62,13 @@ void SensorHub::beginGpio() {
 void SensorHub::beginBh1750() {
   if (!_cfg->bh1750Enabled) { _data->bh1750Ok = false; return; }
   const uint8_t candidates[] = {_cfg->bh1750Address, 0x23, 0x5C};
+  uint8_t tried[3] = {0xFF, 0xFF, 0xFF};
+  uint8_t triedCount = 0;
   for (uint8_t a : candidates) {
-    if (_data->bh1750DetectedAddress != 0xFF && a == _data->bh1750DetectedAddress) continue;
+    bool duplicate = false;
+    for (uint8_t i = 0; i < triedCount; ++i) if (tried[i] == a) duplicate = true;
+    if (duplicate) continue;
+    tried[triedCount++] = a;
     if (!_bh1750.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, a, &Wire)) continue;
     _data->bh1750DetectedAddress = a;
     _data->bh1750Ok = true;
@@ -69,6 +76,7 @@ void SensorHub::beginBh1750() {
     return;
   }
   _data->bh1750Ok = false;
+  _data->bh1750DetectedAddress = 0xFF;
   _data->bh1750Failures++;
   _data->bh1750LastError = "not_found";
 }
@@ -105,6 +113,7 @@ void SensorHub::beginBme() {
     }
   }
   _data->bmeOk = false;
+  _data->bmeDetectedAddress = 0xFF;
   _data->bmeFailures++;
   _data->bmeLastError = "not_found_0x76_0x77";
 }
@@ -123,6 +132,7 @@ void SensorHub::beginIna() {
   _ina = new Adafruit_INA219(_cfg->inaAddress);
   if (!_ina->begin(&Wire)) {
     _data->inaOk = false;
+    _data->inaDetectedAddress = 0xFF;
     _data->inaFailures++;
     _data->inaLastError = "not_found";
     return;
@@ -158,6 +168,7 @@ void SensorHub::beginSds() {
 }
 
 void SensorHub::beginAs3935() {
+  _asLastInitAttemptMs = millis();
   if (!_cfg->as3935Enabled) {
     _data->as3935Ok = false;
     _data->as3935LastEvent = "disabled";
@@ -186,6 +197,7 @@ void SensorHub::beginAs3935() {
 
   if (!_lightning) {
     _data->as3935Ok = false;
+    _data->as3935DetectedAddress = 0xFF;
     _data->as3935LastEvent = "init_error";
     _data->as3935LastError = "i2c_not_found";
     return;
@@ -456,6 +468,7 @@ void SensorHub::sampleIna() {
   if (!_data->inaOk) {
     if (!_ina->begin(&Wire)) {
       _data->inaFailures++;
+      _data->inaDetectedAddress = 0xFF;
       _data->inaLastError = "read_or_init_failed";
       return;
     }
@@ -465,6 +478,7 @@ void SensorHub::sampleIna() {
       case Ina219Calibration::Range32V2A:
       default: _ina->setCalibration_32V_2A(); break;
     }
+    _data->inaDetectedAddress = _cfg->inaAddress;
     _data->inaOk = true;
   }
 
@@ -529,6 +543,13 @@ void SensorHub::sampleSlowSensors() {
   sampleDht();
   sampleIna();
   sampleUv();
+
+  // AS3935 may be temporarily absent at boot. Retry periodically without
+  // rebooting the ESP32 or hammering the I2C bus on every loop iteration.
+  if (_cfg->as3935Enabled && !_lightning &&
+      (uint32_t)(millis() - _asLastInitAttemptMs) >= 10000UL) {
+    beginAs3935();
+  }
 }
 
 bool SensorHub::takeImmediatePublishFlag() {
@@ -547,13 +568,33 @@ String SensorHub::scanI2c() {
       char b[7];
       snprintf(b, sizeof(b), "0x%02X", address);
       result += b;
-      if (address == _cfg->bh1750Address || address == 0x23 || address == 0x5C) result += " BH1750";
-      else if (address == 0x76 || address == 0x77) result += " BME280";
-      else if (address == _cfg->inaAddress || address == 0x40) result += " INA219";
-      else if (address == _cfg->as3935Address || address == 0x01 || address == 0x02 || address == 0x03) result += " AS3935";
+
+      if (address == _cfg->bh1750Address || address == 0x23 || address == 0x5C) {
+        result += " BH1750";
+      } else if (address == 0x76 || address == 0x77) {
+        result += " BME280";
+      } else if (_cfg->inaEnabled && address == _cfg->inaAddress) {
+        result += " INA219";
+      } else if (_cfg->nesaRsg1Enabled && address == _cfg->nesaRsg1AdsAddress) {
+        result += " ADS1115/RSG1-N";
+      } else if (address == 0x40) {
+        result += " INA219";
+      } else if (address >= 0x48 && address <= 0x4B) {
+        result += " ADS1115";
+      } else if (address == _cfg->as3935Address || address == 0x01 || address == 0x02 || address == 0x03) {
+        result += " AS3935";
+      }
     }
     delay(1);
   }
+
+  if (_cfg->as3935Enabled &&
+      (_cfg->as3935Address == 0x00 || _data->as3935DetectedAddress == 0x00)) {
+    if (found) result += " · ";
+    result += "AS3935 0x00 (general-call, escluso dallo scan)";
+    ++found;
+  }
+
   if (!found) return "nessun dispositivo rilevato";
   return result;
 }
