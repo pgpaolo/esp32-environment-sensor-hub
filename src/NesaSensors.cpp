@@ -97,6 +97,15 @@ void SensorHub::sampleNesaRsg1() {
     return;
   }
 
+  if (!i2cPresent(_cfg->nesaRsg1AdsAddress)) {
+    _nesaRsg1Initialized = false;
+    _data->nesaRsg1Ok = false;
+    _data->nesaRsg1DetectedAddress = 0xFF;
+    _data->nesaRsg1Failures++;
+    _data->nesaRsg1LastError = "ads1115_disconnected";
+    return;
+  }
+
   if (_cfg->nesaRsg1SensitivityUvPerWm2 <= 0.001f) {
     _data->nesaRsg1Ok = false;
     _data->nesaRsg1Failures++;
