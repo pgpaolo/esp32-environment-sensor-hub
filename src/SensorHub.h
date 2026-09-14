@@ -21,8 +21,10 @@ class SensorHub {
   ~SensorHub();
 
   void begin(AppConfig &cfg, RuntimeData &data);
+  void beginNesaSensors();
   void tick();
   void sampleSlowSensors();
+  void sampleNesaSensors();
   bool takeImmediatePublishFlag();
   bool requestSdsMeasurement();
   bool forceSdsSleep(const char *reason = "manual_sleep");
