@@ -1,9 +1,14 @@
 #include "NesaConfigStore.h"
 #include <Preferences.h>
 
+namespace {
+constexpr uint16_t NESA_SCHEMA_VERSION = 1;
+}
+
 void loadNesaConfig(AppConfig &c) {
   Preferences p;
   if (!p.begin("sensorhub_nesa", true)) return;
+  const uint16_t storedSchema = p.getUShort("cfgver", 0);
   c.nesaTaEnabled = p.getBool("ta_en", c.nesaTaEnabled);
   c.nesaTaCsPin = p.getUChar("ta_cs", c.nesaTaCsPin);
   c.nesaTaRtdNominalOhm = p.getFloat("ta_rtd", c.nesaTaRtdNominalOhm);
@@ -16,11 +21,14 @@ void loadNesaConfig(AppConfig &c) {
   c.nesaRsg1MaxWm2 = p.getFloat("rsg_max", c.nesaRsg1MaxWm2);
   c.nesaRsg1ClampNegative = p.getBool("rsg_cl", c.nesaRsg1ClampNegative);
   p.end();
+
+  if (storedSchema < NESA_SCHEMA_VERSION) saveNesaConfig(c);
 }
 
 void saveNesaConfig(const AppConfig &c) {
   Preferences p;
   if (!p.begin("sensorhub_nesa", false)) return;
+  p.putUShort("cfgver", NESA_SCHEMA_VERSION);
   p.putBool("ta_en", c.nesaTaEnabled);
   p.putUChar("ta_cs", c.nesaTaCsPin);
   p.putFloat("ta_rtd", c.nesaTaRtdNominalOhm);
