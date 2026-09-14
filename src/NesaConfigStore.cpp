@@ -34,3 +34,10 @@ void saveNesaConfig(const AppConfig &c) {
   p.putBool("rsg_cl", c.nesaRsg1ClampNegative);
   p.end();
 }
+
+void clearNesaConfig() {
+  Preferences p;
+  if (!p.begin("sensorhub_nesa", false)) return;
+  p.clear();
+  p.end();
+}
