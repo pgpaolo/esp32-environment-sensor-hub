@@ -44,7 +44,8 @@ void WebUi::sendJson(JsonDocument &doc) {
   const size_t length = measureJson(doc);
   _server.setContentLength(length);
   _server.send(200, "application/json", "");
-  serializeJson(doc, _server.client());
+  WiFiClient client = _server.client();
+  serializeJson(doc, client);
 }
 
 void WebUi::handleRoot() {
