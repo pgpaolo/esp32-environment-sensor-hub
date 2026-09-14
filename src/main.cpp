@@ -57,11 +57,8 @@ static void startMaintenanceAp() {
 
 static void startNetwork() {
   maintenanceMode = configButtonPressed(cfg.configButtonPin) || cfg.wifiSsid.isEmpty();
-  if (maintenanceMode) {
-    startMaintenanceAp();
-  } else {
-    WiFi.mode(WIFI_STA);
-  }
+  if (maintenanceMode) startMaintenanceAp();
+  else WiFi.mode(WIFI_STA);
 
   if (!cfg.wifiSsid.isEmpty()) {
     WiFi.setHostname(cfg.deviceName.c_str());
@@ -100,17 +97,12 @@ void setup() {
   store.load(cfg);
   loadNesaConfig(cfg);
 
-  // Migration for installations created before Web authentication was enabled.
-  bool authUpdated = false;
-  if (cfg.webUser.isEmpty()) {
-    cfg.webUser = "admin";
-    authUpdated = true;
+  // Validate the complete configuration after loading both NVS namespaces.
+  // Any corrected values are persisted once, avoiding repeated invalid boots.
+  if (ConfigStore::validate(cfg)) {
+    store.save(cfg);
+    saveNesaConfig(cfg);
   }
-  if (cfg.webPassword.isEmpty()) {
-    cfg.webPassword = "admin";
-    authUpdated = true;
-  }
-  if (authUpdated) store.save(cfg);
 
   startNetwork();
   sensors.begin(cfg, data);
