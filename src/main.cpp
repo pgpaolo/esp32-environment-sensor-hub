@@ -11,6 +11,7 @@
 #include "SensorHub.h"
 #include "MqttManager.h"
 #include "WebUi.h"
+#include "remote_access.h"
 
 RTC_DATA_ATTR uint32_t rtcBootCount = 0;
 
@@ -111,6 +112,7 @@ void setup() {
 
   web = new WebUi(cfg, data, store, mqtt, sensors);
   web->begin();
+  initRemoteAccess(cfg);
 
   const uint32_t now = millis();
   lastSensorReadMs = now;

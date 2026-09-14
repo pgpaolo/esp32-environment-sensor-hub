@@ -2,6 +2,7 @@
 #include "BuildInfo.h"
 #include "NesaConfigStore.h"
 #include "WebAssets.h"
+#include "remote_access.h"
 
 #include <WiFi.h>
 #include <time.h>
@@ -84,6 +85,22 @@ void WebUi::handleApiStatus() {
   sys["chip_revision"] = ESP.getChipRevision();
   sys["flash_size"] = ESP.getFlashChipSize();
   sys["reset_reason"] = resetReasonText(esp_reset_reason());
+
+  const RemoteAccessStatus remoteStatus = getRemoteAccessStatus();
+  JsonObject remote = doc["remote"].to<JsonObject>();
+  remote["configured"] = remoteStatus.configured;
+  remote["approved"] = remoteStatus.approved;
+  remote["transport_active"] = remoteStatus.transportActive;
+  remote["state"] = remoteStatus.state;
+  remote["device_id"] = remoteStatus.deviceId;
+  remote["enroll_attempts"] = remoteStatus.enrollAttempts;
+  remote["last_enroll_http_code"] = remoteStatus.lastEnrollHttpCode;
+  remote["ws_connects"] = remoteStatus.wsConnects;
+  remote["ws_disconnects"] = remoteStatus.wsDisconnects;
+  remote["requests"] = remoteStatus.requests;
+  remote["responses"] = remoteStatus.responses;
+  remote["last_activity_age_ms"] = remoteStatus.lastActivityMs ? (uint32_t)(millis() - remoteStatus.lastActivityMs) : 0;
+  remote["last_error"] = remoteStatus.lastError;
 
   JsonObject mq = doc["mqtt"].to<JsonObject>();
   mq["connected"] = _data.mqttConnected;
@@ -486,9 +503,15 @@ void WebUi::setupOta() {
       // write firmware chunks before receiving the final 401 response.
       if (!_server.authenticate(_cfg.webUser.c_str(), _cfg.webPassword.c_str())) return;
       HTTPUpload &u = _server.upload();
-      if (u.status == UPLOAD_FILE_START) Update.begin(UPDATE_SIZE_UNKNOWN);
-      else if (u.status == UPLOAD_FILE_WRITE) Update.write(u.buf, u.currentSize);
-      else if (u.status == UPLOAD_FILE_END) Update.end(true);
+      if (u.status == UPLOAD_FILE_START) {
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
+      } else if (u.status == UPLOAD_FILE_WRITE) {
+        if (!Update.hasError() && Update.write(u.buf, u.currentSize) != u.currentSize) Update.printError(Serial);
+      } else if (u.status == UPLOAD_FILE_END) {
+        if (!Update.hasError() && !Update.end(true)) Update.printError(Serial);
+      } else if (u.status == UPLOAD_FILE_ABORTED) {
+        Update.abort();
+      }
     });
 }
 
@@ -512,6 +535,31 @@ void WebUi::begin() {
   _server.on("/api/sds/sleep", HTTP_POST, [this]() {
     if (!auth()) return;
     _server.send(_sensors.forceSdsSleep() ? 200 : 409, "text/plain", "OK");
+  });
+  _server.on("/api/remote/config", HTTP_GET, [this]() {
+    if (!auth()) return;
+    _server.send(200, "application/json", remoteAccessConfigJson());
+  });
+  _server.on("/api/remote/status", HTTP_GET, [this]() {
+    if (!auth()) return;
+    _server.send(200, "application/json", remoteAccessStatusJson());
+  });
+  _server.on("/api/remote/config", HTTP_POST, [this]() {
+    if (!auth()) return;
+    if (!_server.hasArg("url") || !saveRemoteAccessPortalUrl(_server.arg("url"))) {
+      _server.send(400, "text/plain", "URL non valida: usare una base URL HTTPS senza query o fragment");
+      return;
+    }
+    _server.send(200, "text/plain", _server.arg("url").isEmpty() ? "AdminSensor Remote disabilitato" : "URL salvato; registrazione AdminSensor avviata");
+  });
+  _server.on("/api/remote/retry", HTTP_POST, [this]() {
+    if (!auth()) return;
+    retryRemoteAccessNow();
+    _server.send(200, "text/plain", "Nuovo tentativo AdminSensor richiesto");
+  });
+  _server.on("/api/remote/reset", HTTP_POST, [this]() {
+    if (!auth()) return;
+    _server.send(resetRemoteAccessConfig() ? 200 : 500, "text/plain", "AdminSensor Remote disabilitato");
   });
   _server.on("/config", HTTP_GET, [this]() { handleConfig(); });
   _server.on("/save", HTTP_POST, [this]() { handleSave(); });
