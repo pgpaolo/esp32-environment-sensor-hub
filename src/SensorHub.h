@@ -41,6 +41,8 @@ class SensorHub {
   Adafruit_INA219 *_ina = nullptr;
   Adafruit_MAX31865 *_nesaTa = nullptr;
   Adafruit_ADS1115 *_nesaRsg1 = nullptr;
+  bool _nesaTaInitialized = false;
+  bool _nesaRsg1Initialized = false;
   DHT *_dht = nullptr;
   uint32_t _dhtReadyAtMs = 0;
 
