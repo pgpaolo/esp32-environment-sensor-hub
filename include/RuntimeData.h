@@ -88,9 +88,20 @@ struct RuntimeData {
 
   int wifiRssi = 0;
   String wifiIp;
+
   bool mqttConnected = false;
   int mqttState = 0;
-  uint32_t mqttReconnects = 0;
+  int mqttLastState = 0;
+  uint32_t mqttConnectAttempts = 0;
+  uint32_t mqttConnectSuccess = 0;
+  uint32_t mqttDisconnects = 0;
+  uint32_t mqttPublishOk = 0;
+  uint32_t mqttPublishFailed = 0;
+  uint32_t mqttLastConnectEpoch = 0;
+  uint32_t mqttLastPublishEpoch = 0;
+  uint32_t mqttLastDisconnectEpoch = 0;
+  uint16_t mqttCurrentBackoffSec = 0;
+
   uint32_t lastTelemetryEpoch = 0;
   uint32_t bootCount = 0;
 };
