@@ -1,7 +1,9 @@
 #include "MqttManager.h"
 #include <time.h>
 
-MqttManager::~MqttManager() { if (_mqtt) delete _mqtt; }
+MqttManager::~MqttManager() {
+  if (_mqtt) delete _mqtt;
+}
 
 uint32_t MqttManager::nowEpoch() {
   time_t t = time(nullptr);
@@ -9,65 +11,144 @@ uint32_t MqttManager::nowEpoch() {
 }
 
 void MqttManager::begin(AppConfig &cfg, RuntimeData &data) {
-  _cfg = &cfg; _data = &data;
+  _cfg = &cfg;
+  _data = &data;
+
   if (cfg.mqttTls) {
     if (cfg.mqttTlsInsecure) _secure.setInsecure();
     else if (!cfg.mqttCaCert.isEmpty()) _secure.setCACert(cfg.mqttCaCert.c_str());
     _mqtt = new PubSubClient(_secure);
-  } else _mqtt = new PubSubClient(_plain);
+  } else {
+    _mqtt = new PubSubClient(_plain);
+  }
+
   _mqtt->setServer(cfg.mqttHost.c_str(), cfg.mqttPort);
   _mqtt->setBufferSize(4096);
+
+  _currentBackoffSec = cfg.mqttReconnectSec < 1 ? 1 : cfg.mqttReconnectSec;
+  _data->mqttCurrentBackoffSec = _currentBackoffSec;
+  _data->mqttState = _mqtt->state();
+  _data->mqttLastState = _data->mqttState;
 }
 
 String MqttManager::topic(const char *suffix) const {
   String t = _cfg->mqttBaseTopic;
   while (t.endsWith("/")) t.remove(t.length() - 1);
-  t += "/"; t += suffix; return t;
+  t += "/";
+  t += suffix;
+  return t;
+}
+
+void MqttManager::observeConnectionState() {
+  if (!_mqtt || !_data) return;
+
+  const bool current = _mqtt->connected();
+  if (_lastObservedConnected && !current) {
+    _data->mqttDisconnects++;
+    _data->mqttLastDisconnectEpoch = nowEpoch();
+  }
+
+  _lastObservedConnected = current;
+  _data->mqttConnected = current;
+  _data->mqttState = _mqtt->state();
+  _data->mqttLastState = _data->mqttState;
+  _data->mqttCurrentBackoffSec = _currentBackoffSec;
+}
+
+void MqttManager::registerPublishResult(bool ok) {
+  if (!_data) return;
+  if (ok) {
+    _data->mqttPublishOk++;
+    _data->mqttLastPublishEpoch = nowEpoch();
+  } else {
+    _data->mqttPublishFailed++;
+  }
 }
 
 bool MqttManager::ensureConnected() {
-  if (!_mqtt || WiFi.status() != WL_CONNECTED || _cfg->mqttHost.isEmpty()) {
+  if (!_mqtt || !_cfg || WiFi.status() != WL_CONNECTED || _cfg->mqttHost.isEmpty()) {
     if (_data) _data->mqttConnected = false;
     return false;
   }
+
   if (_mqtt->connected()) {
-    if (_data) { _data->mqttConnected = true; _data->mqttState = 0; }
+    if (_data) {
+      _data->mqttConnected = true;
+      _data->mqttState = 0;
+      _data->mqttLastState = 0;
+    }
     return true;
   }
+
   const uint32_t now = millis();
-  const uint32_t retryMs = (uint32_t)max((uint16_t)1, _cfg->mqttReconnectSec) * 1000UL;
+  const uint32_t retryMs = (uint32_t)_currentBackoffSec * 1000UL;
   if ((uint32_t)(now - _lastConnectAttemptMs) < retryMs) return false;
   _lastConnectAttemptMs = now;
+
+  if (_data) _data->mqttConnectAttempts++;
+
   String clientId = _cfg->deviceName + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
   String willTopic = topic("status");
-  bool ok = _cfg->mqttUser.length()
-      ? _mqtt->connect(clientId.c_str(), _cfg->mqttUser.c_str(), _cfg->mqttPassword.c_str(), willTopic.c_str(), 0, true, "offline")
+
+  const bool ok = _cfg->mqttUser.length()
+      ? _mqtt->connect(clientId.c_str(), _cfg->mqttUser.c_str(), _cfg->mqttPassword.c_str(),
+                       willTopic.c_str(), 0, true, "offline")
       : _mqtt->connect(clientId.c_str(), willTopic.c_str(), 0, true, "offline");
+
   if (_data) {
     _data->mqttConnected = ok;
     _data->mqttState = ok ? 0 : _mqtt->state();
-    _data->mqttReconnects++;
+    _data->mqttLastState = _data->mqttState;
   }
-  if (ok) publishAvailability(true);
+
+  const uint16_t base = _cfg->mqttReconnectSec < 1 ? 1 : _cfg->mqttReconnectSec;
+  if (ok) {
+    _currentBackoffSec = base;
+    if (_data) {
+      _data->mqttConnectSuccess++;
+      _data->mqttLastConnectEpoch = nowEpoch();
+      _data->mqttCurrentBackoffSec = _currentBackoffSec;
+    }
+    publishAvailability(true);
+  } else {
+    uint32_t next = (uint32_t)_currentBackoffSec * 2UL;
+    if (next < base) next = base;
+    if (next > 60) next = 60;
+    _currentBackoffSec = (uint16_t)next;
+    if (_data) _data->mqttCurrentBackoffSec = _currentBackoffSec;
+  }
+
   return ok;
 }
 
 void MqttManager::loop() {
+  observeConnectionState();
   if (ensureConnected()) _mqtt->loop();
-  if (_data && _mqtt) { _data->mqttConnected = _mqtt->connected(); _data->mqttState = _mqtt->state(); }
+  observeConnectionState();
 }
 
-bool MqttManager::connected() const { return _mqtt && _mqtt->connected(); }
-int MqttManager::state() const { return _mqtt ? _mqtt->state() : -99; }
+bool MqttManager::connected() const {
+  return _mqtt && _mqtt->connected();
+}
+
+int MqttManager::state() const {
+  return _mqtt ? _mqtt->state() : -99;
+}
 
 bool MqttManager::publishAvailability(bool online) {
   if (!_mqtt || !_mqtt->connected()) return false;
   String t = topic("status");
-  return _mqtt->publish(t.c_str(), online ? "online" : "offline", true);
+  const bool ok = _mqtt->publish(t.c_str(), online ? "online" : "offline", true);
+  registerPublishResult(ok);
+  return ok;
 }
 
 bool MqttManager::publishTelemetry(const char *reason) {
-  if (!ensureConnected()) return false;
+  if (!ensureConnected()) {
+    registerPublishResult(false);
+    return false;
+  }
+
   JsonDocument doc;
   doc["device"] = _cfg->deviceName;
   doc["reason"] = reason;
@@ -83,15 +164,26 @@ bool MqttManager::publishTelemetry(const char *reason) {
   sys["cpu_mhz"] = ESP.getCpuFreqMHz();
   sys["boot_count"] = _data->bootCount;
 
+  JsonObject mq = sys["mqtt"].to<JsonObject>();
+  mq["connect_attempts"] = _data->mqttConnectAttempts;
+  mq["connect_success"] = _data->mqttConnectSuccess;
+  mq["disconnects"] = _data->mqttDisconnects;
+  mq["publish_ok"] = _data->mqttPublishOk;
+  mq["publish_failed"] = _data->mqttPublishFailed;
+  mq["state"] = _data->mqttState;
+  mq["backoff_s"] = _data->mqttCurrentBackoffSec;
+
   JsonObject relay = doc["relay"].to<JsonObject>();
   relay["enabled"] = _cfg->relayEnabled;
   relay["state"] = _data->relayState ? "ON" : "OFF";
 
   JsonObject bh = doc["bh1750"].to<JsonObject>();
+  bh["enabled"] = _cfg->bh1750Enabled;
   bh["ok"] = _data->bh1750Ok;
   if (_data->bh1750Ok) bh["illuminance_lux"] = _data->bh1750Lux;
 
   JsonObject bme = doc["bme280"].to<JsonObject>();
+  bme["enabled"] = _cfg->bmeEnabled;
   bme["ok"] = _data->bmeOk;
   if (_data->bmeOk) {
     bme["temperature_c"] = _data->bmeTempC;
@@ -101,6 +193,7 @@ bool MqttManager::publishTelemetry(const char *reason) {
   }
 
   JsonObject dht = doc["dht11"].to<JsonObject>();
+  dht["enabled"] = _cfg->dhtEnabled;
   dht["ok"] = _data->dhtOk;
   if (_data->dhtOk) {
     dht["temperature_c"] = _data->dhtTempC;
@@ -109,6 +202,7 @@ bool MqttManager::publishTelemetry(const char *reason) {
   }
 
   JsonObject ina = doc["ina219"].to<JsonObject>();
+  ina["enabled"] = _cfg->inaEnabled;
   ina["ok"] = _data->inaOk;
   if (_data->inaOk) {
     ina["bus_voltage_v"] = _data->inaBusVoltageV;
@@ -140,6 +234,7 @@ bool MqttManager::publishTelemetry(const char *reason) {
   if (!_data->nesaRsg1LastError.isEmpty()) rsg["last_error"] = _data->nesaRsg1LastError;
 
   JsonObject uv = doc["uv"].to<JsonObject>();
+  uv["enabled"] = _cfg->uvEnabled;
   uv["ok"] = _data->uvOk;
   if (_data->uvOk) {
     uv["raw_adc"] = _data->uvRawAdc;
@@ -148,6 +243,7 @@ bool MqttManager::publishTelemetry(const char *reason) {
   }
 
   JsonObject sds = doc["sds011"].to<JsonObject>();
+  sds["enabled"] = _cfg->sdsEnabled;
   sds["ok"] = _data->sdsOk;
   sds["state"] = _data->sdsState;
   sds["next_measurement_s"] = _data->sdsNextInSec;
@@ -161,6 +257,7 @@ bool MqttManager::publishTelemetry(const char *reason) {
   if (!isnan(_data->pm10)) sds["pm10_ugm3"] = _data->pm10;
 
   JsonObject as = doc["as3935"].to<JsonObject>();
+  as["enabled"] = _cfg->as3935Enabled;
   as["ok"] = _data->as3935Ok;
   as["last_event"] = _data->as3935LastEvent;
   as["lightning_count"] = _data->as3935EventCount;
@@ -170,9 +267,11 @@ bool MqttManager::publishTelemetry(const char *reason) {
   as["energy"] = _data->as3935Energy;
 
   String payload;
+  payload.reserve(3072);
   serializeJson(doc, payload);
   String t = topic("telemetry");
   const bool ok = _mqtt->publish(t.c_str(), payload.c_str(), _cfg->mqttRetain);
+  registerPublishResult(ok);
   if (ok) _data->lastTelemetryEpoch = epoch;
   return ok;
 }
