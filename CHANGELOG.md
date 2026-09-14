@@ -2,24 +2,26 @@
 
 ## v0.7.3
 
-Revisione robustezza e manutenzione.
+Revisione robustezza, configurazione, diagnostica e manutenzione.
 
 ### Memoria / Web
 
-- dashboard e configurazione spostate in `PROGMEM` tramite `src/WebAssets.h`;
-- eliminazione delle grandi concatenazioni `String` per le pagine principali;
-- JSON Web serializzato direttamente sul client HTTP;
-- diagnostica heap: free heap, min free heap, largest free block, frammentazione indicativa.
+- dashboard, configurazione e OTA spostate in `PROGMEM` tramite `src/WebAssets.h`;
+- eliminate le grandi concatenazioni `String` per le pagine principali;
+- JSON Web serializzato direttamente sul `WiFiClient`;
+- diagnostica heap: free heap, min free heap, largest free block e frammentazione indicativa;
+- fix compatibilità ArduinoJson: il `WiFiClient` viene ottenuto come lvalue prima della serializzazione.
 
 ### Configurazione
 
-- schema NVS versione 1 (`cfgver`);
+- schema NVS logico versione 1 (`cfgver`) nel namespace `sensorhub`;
+- caricamento separato di `sensorhub_nesa` seguito da seconda validazione dell'oggetto completo;
 - migrazione automatica delle configurazioni precedenti;
-- validazione centralizzata di GPIO, indirizzi, intervalli e parametri sensori;
+- validazione centralizzata di GPIO, indirizzi, intervalli, enum e parametri sensori;
 - correzione selettiva dei soli valori non validi;
-- password Web/Wi-Fi/MQTT non restituite dalla configurazione;
+- password Web/Wi-Fi/MQTT e testo CA MQTT non restituiti da `/api/config`;
 - campo password vuoto = mantiene il valore salvato;
-- factory reset dei namespace `sensorhub` e `sensorhub_nesa`.
+- factory reset di `sensorhub` e `sensorhub_nesa`.
 
 ### MQTT
 
@@ -27,7 +29,8 @@ Revisione robustezza e manutenzione.
 - contatori publish OK / failed;
 - timestamp runtime per connect/disconnect/publish;
 - reconnect con backoff progressivo fino a 60 s;
-- LWT retained `online/offline` mantenuto.
+- LWT retained `online/offline` mantenuto;
+- buffer payload JSON riutilizzato fra le pubblicazioni.
 
 ### Web UI / diagnostica
 
@@ -38,17 +41,27 @@ Revisione robustezza e manutenzione.
 - AP manutenzione `192.168.4.1`;
 - autenticazione factory `admin/admin`.
 
-### Fix
+### OTA
 
-- corretto streaming JSON verso `WiFiClient` per compatibilità con ArduinoJson/Arduino ESP32;
-- build PlatformIO `esp32dev` verificata con successo.
+- autenticazione HTTP Basic sul GET e sul POST;
+- autenticazione anche nel callback che riceve i chunk prima di `Update.begin()/write()/end()`.
 
-Build di riferimento:
+### NESA
+
+- TA-N predisposto come **PT100 4 fili** tramite MAX31865;
+- `R0 = 100 ohm`, `RREF = 430 ohm`, CS default GPIO13;
+- documentata compatibilità con breakout MAX31865 PT100 Adafruit-compatible/DollaTek equivalenti;
+- chiarito che MAX31855 non è compatibile con la RTD PT100;
+- RSG1-N tramite ADS1115 differenziale A0-A1.
+
+### Build verificata
 
 ```text
-RAM   15,6% — 51.036 / 327.680 byte
-Flash 57,7% — 1.134.213 / 1.966.080 byte
+RAM   15,6% — 51.060 / 327.680 byte
+Flash 57,8% — 1.135.421 / 1.966.080 byte
 ```
+
+GitHub Actions `PlatformIO Build`: **SUCCESS** sull'HEAD verificato.
 
 ## v0.7.2
 
