@@ -2,97 +2,97 @@
 
 #include <math.h>
 
+namespace {
+template <typename T>
+bool fixValue(bool bad, T &field, const T &fallback) {
+  if (!bad) return false;
+  field = fallback;
+  return true;
+}
+}
+
 bool ConfigStore::validGpio(uint8_t pin) {
-  // GPIO 6..11 are normally connected to the ESP32 SPI flash.
   return pin <= 39 && !(pin >= 6 && pin <= 11);
 }
 
 bool ConfigStore::validOutputGpio(uint8_t pin) {
-  // GPIO 34..39 are input-only on the classic ESP32.
   return validGpio(pin) && pin < 34;
 }
 
 bool ConfigStore::validAdc1Gpio(uint8_t pin) {
-  // ADC1 remains usable while Wi-Fi is active.
   return pin >= 32 && pin <= 39;
 }
 
 bool ConfigStore::validate(AppConfig &c) {
   const AppConfig d;
   bool changed = false;
-  auto fix = [&changed](bool bad, auto &field, const auto &fallback) {
-    if (bad) {
-      field = fallback;
-      changed = true;
-    }
-  };
 
-  fix(c.deviceName.isEmpty() || c.deviceName.length() > 31, c.deviceName, d.deviceName);
-  fix(c.webUser.isEmpty() || c.webUser.length() > 31, c.webUser, d.webUser);
-  fix(c.webPassword.isEmpty() || c.webPassword.length() > 63, c.webPassword, d.webPassword);
-  fix(c.mqttPort == 0, c.mqttPort, d.mqttPort);
-  fix(c.mqttReconnectSec < 1 || c.mqttReconnectSec > 300, c.mqttReconnectSec, d.mqttReconnectSec);
-  fix(c.sensorIntervalSec < 2 || c.sensorIntervalSec > 86400, c.sensorIntervalSec, d.sensorIntervalSec);
-  fix(c.telemetryIntervalSec < 5 || c.telemetryIntervalSec > 86400, c.telemetryIntervalSec, d.telemetryIntervalSec);
+  changed |= fixValue(c.deviceName.isEmpty() || c.deviceName.length() > 31, c.deviceName, d.deviceName);
+  changed |= fixValue(c.webUser.isEmpty() || c.webUser.length() > 31, c.webUser, d.webUser);
+  changed |= fixValue(c.webPassword.isEmpty() || c.webPassword.length() > 63, c.webPassword, d.webPassword);
+  changed |= fixValue(c.mqttPort == 0, c.mqttPort, d.mqttPort);
+  changed |= fixValue(c.mqttReconnectSec < 1 || c.mqttReconnectSec > 300, c.mqttReconnectSec, d.mqttReconnectSec);
+  changed |= fixValue(c.sensorIntervalSec < 2 || c.sensorIntervalSec > 86400, c.sensorIntervalSec, d.sensorIntervalSec);
+  changed |= fixValue(c.telemetryIntervalSec < 5 || c.telemetryIntervalSec > 86400, c.telemetryIntervalSec, d.telemetryIntervalSec);
 
-  fix(!validOutputGpio(c.i2cSda), c.i2cSda, d.i2cSda);
-  fix(!validOutputGpio(c.i2cScl), c.i2cScl, d.i2cScl);
+  changed |= fixValue(!validOutputGpio(c.i2cSda), c.i2cSda, d.i2cSda);
+  changed |= fixValue(!validOutputGpio(c.i2cScl), c.i2cScl, d.i2cScl);
   if (c.i2cSda == c.i2cScl) {
     c.i2cSda = d.i2cSda;
     c.i2cScl = d.i2cScl;
     changed = true;
   }
 
-  fix(!validOutputGpio(c.statusLedPin), c.statusLedPin, d.statusLedPin);
-  fix(!validOutputGpio(c.relayPin), c.relayPin, d.relayPin);
-  fix(!validGpio(c.dhtPin), c.dhtPin, d.dhtPin);
-  fix(!validAdc1Gpio(c.uvPin), c.uvPin, d.uvPin);
-  fix(!validGpio(c.sdsRxPin), c.sdsRxPin, d.sdsRxPin);
-  fix(!validOutputGpio(c.sdsTxPin), c.sdsTxPin, d.sdsTxPin);
+  changed |= fixValue(!validOutputGpio(c.statusLedPin), c.statusLedPin, d.statusLedPin);
+  changed |= fixValue(!validOutputGpio(c.relayPin), c.relayPin, d.relayPin);
+  changed |= fixValue(!validGpio(c.dhtPin), c.dhtPin, d.dhtPin);
+  changed |= fixValue(!validAdc1Gpio(c.uvPin), c.uvPin, d.uvPin);
+  changed |= fixValue(!validGpio(c.sdsRxPin), c.sdsRxPin, d.sdsRxPin);
+  changed |= fixValue(!validOutputGpio(c.sdsTxPin), c.sdsTxPin, d.sdsTxPin);
   if (c.sdsRxPin == c.sdsTxPin) {
     c.sdsRxPin = d.sdsRxPin;
     c.sdsTxPin = d.sdsTxPin;
     changed = true;
   }
-  fix(!validGpio(c.as3935IrqPin), c.as3935IrqPin, d.as3935IrqPin);
-  fix(!validOutputGpio(c.nesaTaCsPin), c.nesaTaCsPin, d.nesaTaCsPin);
-  fix(!validGpio(c.configButtonPin), c.configButtonPin, d.configButtonPin);
+  changed |= fixValue(!validGpio(c.as3935IrqPin), c.as3935IrqPin, d.as3935IrqPin);
+  changed |= fixValue(!validOutputGpio(c.nesaTaCsPin), c.nesaTaCsPin, d.nesaTaCsPin);
+  changed |= fixValue(!validGpio(c.configButtonPin), c.configButtonPin, d.configButtonPin);
 
-  fix(!(c.bh1750Address == 0x23 || c.bh1750Address == 0x5C), c.bh1750Address, d.bh1750Address);
-  fix(!(c.bmeAddress == 0x76 || c.bmeAddress == 0x77), c.bmeAddress, d.bmeAddress);
-  fix(c.inaAddress < 0x40 || c.inaAddress > 0x4F, c.inaAddress, d.inaAddress);
-  fix(c.as3935Address > 0x03, c.as3935Address, d.as3935Address);
-  fix(c.nesaRsg1AdsAddress < 0x48 || c.nesaRsg1AdsAddress > 0x4B, c.nesaRsg1AdsAddress, d.nesaRsg1AdsAddress);
+  changed |= fixValue(!(c.bh1750Address == 0x23 || c.bh1750Address == 0x5C), c.bh1750Address, d.bh1750Address);
+  changed |= fixValue(!(c.bmeAddress == 0x76 || c.bmeAddress == 0x77), c.bmeAddress, d.bmeAddress);
+  changed |= fixValue(c.inaAddress < 0x40 || c.inaAddress > 0x4F, c.inaAddress, d.inaAddress);
+  changed |= fixValue(c.as3935Address > 0x03, c.as3935Address, d.as3935Address);
+  changed |= fixValue(c.nesaRsg1AdsAddress < 0x48 || c.nesaRsg1AdsAddress > 0x4B, c.nesaRsg1AdsAddress, d.nesaRsg1AdsAddress);
 
-  fix(c.sdsCycleMinutes < 1 || c.sdsCycleMinutes > 1440, c.sdsCycleMinutes, d.sdsCycleMinutes);
-  fix(c.sdsWarmupSec < 15 || c.sdsWarmupSec > 180, c.sdsWarmupSec, d.sdsWarmupSec);
-  fix(c.sdsSamples < 1 || c.sdsSamples > 30, c.sdsSamples, d.sdsSamples);
-  fix(c.sdsSampleGapMs < 250 || c.sdsSampleGapMs > 10000, c.sdsSampleGapMs, d.sdsSampleGapMs);
-  fix(c.sdsMaxAwakeSec < 30 || c.sdsMaxAwakeSec > 600, c.sdsMaxAwakeSec, d.sdsMaxAwakeSec);
-  fix(c.sdsFirstCycleDelaySec > 600, c.sdsFirstCycleDelaySec, d.sdsFirstCycleDelaySec);
+  changed |= fixValue(c.sdsCycleMinutes < 1 || c.sdsCycleMinutes > 1440, c.sdsCycleMinutes, d.sdsCycleMinutes);
+  changed |= fixValue(c.sdsWarmupSec < 15 || c.sdsWarmupSec > 180, c.sdsWarmupSec, d.sdsWarmupSec);
+  changed |= fixValue(c.sdsSamples < 1 || c.sdsSamples > 30, c.sdsSamples, d.sdsSamples);
+  changed |= fixValue(c.sdsSampleGapMs < 250 || c.sdsSampleGapMs > 10000, c.sdsSampleGapMs, d.sdsSampleGapMs);
+  changed |= fixValue(c.sdsMaxAwakeSec < 30 || c.sdsMaxAwakeSec > 600, c.sdsMaxAwakeSec, d.sdsMaxAwakeSec);
+  changed |= fixValue(c.sdsFirstCycleDelaySec > 600, c.sdsFirstCycleDelaySec, d.sdsFirstCycleDelaySec);
 
-  fix(!isfinite(c.uvZeroMv) || c.uvZeroMv < -1000.0f || c.uvZeroMv > 3000.0f, c.uvZeroMv, d.uvZeroMv);
-  fix(!isfinite(c.uvMvPerIndex) || c.uvMvPerIndex <= 0.01f || c.uvMvPerIndex > 5000.0f, c.uvMvPerIndex, d.uvMvPerIndex);
-  fix(!isfinite(c.uvMaxIndex) || c.uvMaxIndex <= 0.0f || c.uvMaxIndex > 100.0f, c.uvMaxIndex, d.uvMaxIndex);
-  fix(c.uvSamples < 1 || c.uvSamples > 128, c.uvSamples, d.uvSamples);
+  changed |= fixValue(!isfinite(c.uvZeroMv) || c.uvZeroMv < -1000.0f || c.uvZeroMv > 3000.0f, c.uvZeroMv, d.uvZeroMv);
+  changed |= fixValue(!isfinite(c.uvMvPerIndex) || c.uvMvPerIndex <= 0.01f || c.uvMvPerIndex > 5000.0f, c.uvMvPerIndex, d.uvMvPerIndex);
+  changed |= fixValue(!isfinite(c.uvMaxIndex) || c.uvMaxIndex <= 0.0f || c.uvMaxIndex > 100.0f, c.uvMaxIndex, d.uvMaxIndex);
+  changed |= fixValue(c.uvSamples < 1 || c.uvSamples > 128, c.uvSamples, d.uvSamples);
 
-  fix(c.as3935NoiseFloor > 7, c.as3935NoiseFloor, d.as3935NoiseFloor);
-  fix(c.as3935Watchdog > 10, c.as3935Watchdog, d.as3935Watchdog);
-  fix(c.as3935SpikeRejection > 15, c.as3935SpikeRejection, d.as3935SpikeRejection);
+  changed |= fixValue(c.as3935NoiseFloor > 7, c.as3935NoiseFloor, d.as3935NoiseFloor);
+  changed |= fixValue(c.as3935Watchdog > 10, c.as3935Watchdog, d.as3935Watchdog);
+  changed |= fixValue(c.as3935SpikeRejection > 15, c.as3935SpikeRejection, d.as3935SpikeRejection);
   if (!(c.as3935LightningThreshold == 1 || c.as3935LightningThreshold == 5 ||
         c.as3935LightningThreshold == 9 || c.as3935LightningThreshold == 16)) {
     c.as3935LightningThreshold = d.as3935LightningThreshold;
     changed = true;
   }
 
-  fix(!isfinite(c.nesaTaRtdNominalOhm) || c.nesaTaRtdNominalOhm < 50.0f || c.nesaTaRtdNominalOhm > 2000.0f,
-      c.nesaTaRtdNominalOhm, d.nesaTaRtdNominalOhm);
-  fix(!isfinite(c.nesaTaRefResistorOhm) || c.nesaTaRefResistorOhm < 100.0f || c.nesaTaRefResistorOhm > 10000.0f,
-      c.nesaTaRefResistorOhm, d.nesaTaRefResistorOhm);
-  fix(!isfinite(c.nesaRsg1SensitivityUvPerWm2) || c.nesaRsg1SensitivityUvPerWm2 <= 0.0001f || c.nesaRsg1SensitivityUvPerWm2 > 10000.0f,
-      c.nesaRsg1SensitivityUvPerWm2, d.nesaRsg1SensitivityUvPerWm2);
-  fix(!isfinite(c.nesaRsg1MaxWm2) || c.nesaRsg1MaxWm2 < 10.0f || c.nesaRsg1MaxWm2 > 10000.0f,
-      c.nesaRsg1MaxWm2, d.nesaRsg1MaxWm2);
+  changed |= fixValue(!isfinite(c.nesaTaRtdNominalOhm) || c.nesaTaRtdNominalOhm < 50.0f || c.nesaTaRtdNominalOhm > 2000.0f,
+                      c.nesaTaRtdNominalOhm, d.nesaTaRtdNominalOhm);
+  changed |= fixValue(!isfinite(c.nesaTaRefResistorOhm) || c.nesaTaRefResistorOhm < 100.0f || c.nesaTaRefResistorOhm > 10000.0f,
+                      c.nesaTaRefResistorOhm, d.nesaTaRefResistorOhm);
+  changed |= fixValue(!isfinite(c.nesaRsg1SensitivityUvPerWm2) || c.nesaRsg1SensitivityUvPerWm2 <= 0.0001f || c.nesaRsg1SensitivityUvPerWm2 > 10000.0f,
+                      c.nesaRsg1SensitivityUvPerWm2, d.nesaRsg1SensitivityUvPerWm2);
+  changed |= fixValue(!isfinite(c.nesaRsg1MaxWm2) || c.nesaRsg1MaxWm2 < 10.0f || c.nesaRsg1MaxWm2 > 10000.0f,
+                      c.nesaRsg1MaxWm2, d.nesaRsg1MaxWm2);
 
   return changed;
 }
@@ -190,9 +190,7 @@ bool ConfigStore::load(AppConfig &c) {
   }
 
   const bool corrected = validate(c);
-  if (!opened || storedSchema < CURRENT_SCHEMA_VERSION || corrected) {
-    save(c);
-  }
+  if (!opened || storedSchema < CURRENT_SCHEMA_VERSION || corrected) save(c);
   return opened;
 }
 
