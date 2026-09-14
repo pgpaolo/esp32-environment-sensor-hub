@@ -148,6 +148,7 @@ Vedere [`docs/MQTT.md`](docs/MQTT.md).
 - [`docs/MQTT.md`](docs/MQTT.md) — topic, payload e diagnostica MQTT;
 - [`docs/API.md`](docs/API.md) — endpoint Web/API;
 - [`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md) — memoria, PROGMEM, versioning e fail-safe;
+- [`docs/VERIFICATION.md`](docs/VERIFICATION.md) — checklist di verifica generale v0.7.3;
 - [`CHANGELOG.md`](CHANGELOG.md) — cronologia delle revisioni principali.
 
 ## Credenziali Wi-Fi locali
