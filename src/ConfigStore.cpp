@@ -45,7 +45,9 @@ bool ConfigStore::validate(AppConfig &c) {
 
   changed |= fixValue(!validOutputGpio(c.statusLedPin), c.statusLedPin, d.statusLedPin);
   changed |= fixValue(!validOutputGpio(c.relayPin), c.relayPin, d.relayPin);
-  changed |= fixValue(!validGpio(c.dhtPin), c.dhtPin, d.dhtPin);
+  // DHT uses a bidirectional single-wire transaction: input-only GPIO34..39
+  // cannot be used even though the sensor is conceptually an input device.
+  changed |= fixValue(!validOutputGpio(c.dhtPin), c.dhtPin, d.dhtPin);
   changed |= fixValue(!validAdc1Gpio(c.uvPin), c.uvPin, d.uvPin);
   changed |= fixValue(!validGpio(c.sdsRxPin), c.sdsRxPin, d.sdsRxPin);
   changed |= fixValue(!validOutputGpio(c.sdsTxPin), c.sdsTxPin, d.sdsTxPin);
@@ -56,13 +58,49 @@ bool ConfigStore::validate(AppConfig &c) {
   }
   changed |= fixValue(!validGpio(c.as3935IrqPin), c.as3935IrqPin, d.as3935IrqPin);
   changed |= fixValue(!validOutputGpio(c.nesaTaCsPin), c.nesaTaCsPin, d.nesaTaCsPin);
-  changed |= fixValue(!validGpio(c.configButtonPin), c.configButtonPin, d.configButtonPin);
+  // BOOT/config is opened as INPUT_PULLUP, unavailable on GPIO34..39.
+  changed |= fixValue(!validOutputGpio(c.configButtonPin), c.configButtonPin, d.configButtonPin);
 
   changed |= fixValue(!(c.bh1750Address == 0x23 || c.bh1750Address == 0x5C), c.bh1750Address, d.bh1750Address);
   changed |= fixValue(!(c.bmeAddress == 0x76 || c.bmeAddress == 0x77), c.bmeAddress, d.bmeAddress);
   changed |= fixValue(c.inaAddress < 0x40 || c.inaAddress > 0x4F, c.inaAddress, d.inaAddress);
   changed |= fixValue(c.as3935Address > 0x03, c.as3935Address, d.as3935Address);
   changed |= fixValue(c.nesaRsg1AdsAddress < 0x48 || c.nesaRsg1AdsAddress > 0x4B, c.nesaRsg1AdsAddress, d.nesaRsg1AdsAddress);
+  // INA219 and ADS1115 address ranges overlap. Avoid an impossible configuration
+  // when both sensors are enabled on exactly the same I2C address.
+  if (c.inaEnabled && c.nesaRsg1Enabled && c.inaAddress == c.nesaRsg1AdsAddress) {
+    c.inaAddress = d.inaAddress;
+    c.nesaRsg1AdsAddress = d.nesaRsg1AdsAddress;
+    changed = true;
+  }
+
+  const uint8_t inaCal = static_cast<uint8_t>(c.inaCalibration);
+  if (inaCal > static_cast<uint8_t>(Ina219Calibration::Range16V400mA)) {
+    c.inaCalibration = d.inaCalibration;
+    changed = true;
+  }
+  const uint8_t uvMode = static_cast<uint8_t>(c.uvCalibrationMode);
+  if (uvMode > static_cast<uint8_t>(UvCalibrationMode::Guva100mVPerUvi)) {
+    c.uvCalibrationMode = d.uvCalibrationMode;
+    changed = true;
+  }
+
+  changed |= fixValue(!isfinite(c.bh1750OffsetLux) || c.bh1750OffsetLux < -100000.0f || c.bh1750OffsetLux > 100000.0f,
+                      c.bh1750OffsetLux, d.bh1750OffsetLux);
+  changed |= fixValue(!isfinite(c.bmeTemperatureOffsetC) || c.bmeTemperatureOffsetC < -20.0f || c.bmeTemperatureOffsetC > 20.0f,
+                      c.bmeTemperatureOffsetC, d.bmeTemperatureOffsetC);
+  changed |= fixValue(!isfinite(c.bmePressureOffsetHpa) || c.bmePressureOffsetHpa < -100.0f || c.bmePressureOffsetHpa > 100.0f,
+                      c.bmePressureOffsetHpa, d.bmePressureOffsetHpa);
+  changed |= fixValue(!isfinite(c.bmeHumidityOffsetPct) || c.bmeHumidityOffsetPct < -50.0f || c.bmeHumidityOffsetPct > 50.0f,
+                      c.bmeHumidityOffsetPct, d.bmeHumidityOffsetPct);
+  changed |= fixValue(!isfinite(c.dhtTemperatureOffsetC) || c.dhtTemperatureOffsetC < -20.0f || c.dhtTemperatureOffsetC > 20.0f,
+                      c.dhtTemperatureOffsetC, d.dhtTemperatureOffsetC);
+  changed |= fixValue(!isfinite(c.dhtHumidityOffsetPct) || c.dhtHumidityOffsetPct < -50.0f || c.dhtHumidityOffsetPct > 50.0f,
+                      c.dhtHumidityOffsetPct, d.dhtHumidityOffsetPct);
+  changed |= fixValue(!isfinite(c.inaBusVoltageOffsetV) || c.inaBusVoltageOffsetV < -10.0f || c.inaBusVoltageOffsetV > 10.0f,
+                      c.inaBusVoltageOffsetV, d.inaBusVoltageOffsetV);
+  changed |= fixValue(!isfinite(c.inaCurrentOffsetMa) || c.inaCurrentOffsetMa < -5000.0f || c.inaCurrentOffsetMa > 5000.0f,
+                      c.inaCurrentOffsetMa, d.inaCurrentOffsetMa);
 
   changed |= fixValue(c.sdsCycleMinutes < 1 || c.sdsCycleMinutes > 1440, c.sdsCycleMinutes, d.sdsCycleMinutes);
   changed |= fixValue(c.sdsWarmupSec < 15 || c.sdsWarmupSec > 180, c.sdsWarmupSec, d.sdsWarmupSec);
@@ -89,8 +127,12 @@ bool ConfigStore::validate(AppConfig &c) {
                       c.nesaTaRtdNominalOhm, d.nesaTaRtdNominalOhm);
   changed |= fixValue(!isfinite(c.nesaTaRefResistorOhm) || c.nesaTaRefResistorOhm < 100.0f || c.nesaTaRefResistorOhm > 10000.0f,
                       c.nesaTaRefResistorOhm, d.nesaTaRefResistorOhm);
+  changed |= fixValue(!isfinite(c.nesaTaTemperatureOffsetC) || c.nesaTaTemperatureOffsetC < -20.0f || c.nesaTaTemperatureOffsetC > 20.0f,
+                      c.nesaTaTemperatureOffsetC, d.nesaTaTemperatureOffsetC);
   changed |= fixValue(!isfinite(c.nesaRsg1SensitivityUvPerWm2) || c.nesaRsg1SensitivityUvPerWm2 <= 0.0001f || c.nesaRsg1SensitivityUvPerWm2 > 10000.0f,
                       c.nesaRsg1SensitivityUvPerWm2, d.nesaRsg1SensitivityUvPerWm2);
+  changed |= fixValue(!isfinite(c.nesaRsg1OffsetUv) || c.nesaRsg1OffsetUv < -100000.0f || c.nesaRsg1OffsetUv > 100000.0f,
+                      c.nesaRsg1OffsetUv, d.nesaRsg1OffsetUv);
   changed |= fixValue(!isfinite(c.nesaRsg1MaxWm2) || c.nesaRsg1MaxWm2 < 10.0f || c.nesaRsg1MaxWm2 > 10000.0f,
                       c.nesaRsg1MaxWm2, d.nesaRsg1MaxWm2);
 
