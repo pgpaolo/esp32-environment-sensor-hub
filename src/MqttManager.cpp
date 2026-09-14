@@ -24,6 +24,7 @@ void MqttManager::begin(AppConfig &cfg, RuntimeData &data) {
 
   _mqtt->setServer(cfg.mqttHost.c_str(), cfg.mqttPort);
   _mqtt->setBufferSize(4096);
+  _payloadBuffer.reserve(3072);
 
   _currentBackoffSec = cfg.mqttReconnectSec < 1 ? 1 : cfg.mqttReconnectSec;
   _data->mqttCurrentBackoffSec = _currentBackoffSec;
@@ -266,11 +267,10 @@ bool MqttManager::publishTelemetry(const char *reason) {
   if (_data->as3935DistanceKm >= 0) as["distance_km"] = _data->as3935DistanceKm;
   as["energy"] = _data->as3935Energy;
 
-  String payload;
-  payload.reserve(3072);
-  serializeJson(doc, payload);
+  _payloadBuffer.remove(0);
+  serializeJson(doc, _payloadBuffer);
   String t = topic("telemetry");
-  const bool ok = _mqtt->publish(t.c_str(), payload.c_str(), _cfg->mqttRetain);
+  const bool ok = _mqtt->publish(t.c_str(), _payloadBuffer.c_str(), _cfg->mqttRetain);
   registerPublishResult(ok);
   if (ok) _data->lastTelemetryEpoch = epoch;
   return ok;
