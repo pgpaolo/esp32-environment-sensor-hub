@@ -8,12 +8,13 @@ Controllo funzionale/documentale del repository `esp32-environment-sensor-hub` d
 |---|---|---|
 | Versione firmware | `FW_VERSION = 0.7.3` | OK |
 | Build PlatformIO | `esp32dev` | OK |
-| RAM statica | 51.036 / 327.680 byte (15,6%) | OK |
-| Flash applicativa | 1.134.213 / 1.966.080 byte (57,7%) | OK |
+| RAM statica | 51.060 / 327.680 byte (15,6%) | OK |
+| Flash applicativa | 1.135.421 / 1.966.080 byte (57,8%) | OK |
 | Web statico | `src/WebAssets.h` in PROGMEM | OK |
-| JSON Web | serializzazione diretta su WiFiClient | OK |
+| JSON Web | serializzazione diretta su `WiFiClient` | OK |
 | Heap diagnostics | free/min/largest/fragmentation | OK |
-| Config schema | `cfgver = 1` | OK |
+| Config schema | `cfgver = 1` nel namespace `sensorhub` | OK |
+| Merge NVS | `sensorhub` + `sensorhub_nesa` + seconda validazione | OK |
 | Migrazione NVS | load + default + validate + save | OK |
 | Password Web | non restituita da `/api/config` | OK |
 | Password Wi-Fi | non restituita da `/api/config` | OK |
@@ -26,6 +27,7 @@ Controllo funzionale/documentale del repository `esp32-environment-sensor-hub` d
 | Pulsante PIN | card sensori + mappa completa | OK |
 | AP manutenzione | `192.168.4.1` | OK |
 | Web auth default | `admin/admin` | OK |
+| OTA auth | GET, handler POST e callback upload autenticati | OK |
 | NESA TA-N | MAX31865 / PT100 4 fili | OK |
 | NESA RSG1-N | ADS1115 differenziale | OK |
 | RF Oregon | assente dal progetto | OK |
@@ -42,7 +44,7 @@ RREF = 430 ohm
 CS   = GPIO13
 ```
 
-Il firmware è quindi predisposto per il TA-N/PT100 a 4 fili tramite MAX31865. MAX31855 non è compatibile con questa configurazione.
+Il firmware è predisposto per il TA-N/PT100 a 4 fili tramite MAX31865. Il MAX31865 è parte necessaria della catena di misura. MAX31855 non è compatibile con questa configurazione perché destinato alle termocoppie.
 
 ## NESA RSG1-N
 
@@ -62,6 +64,8 @@ La sensibilità deve essere impostata secondo il certificato del piranometro.
 
 La configurazione principale è salvata in `sensorhub`; NESA in `sensorhub_nesa`.
 
+La chiave `cfgver` vive nel namespace principale ma governa lo schema logico della configurazione complessiva. Dopo il caricamento NESA viene eseguita una seconda validazione dell'oggetto completo.
+
 La validazione copre GPIO, ADC1, bus I2C, indirizzi, intervalli generali, SDS011, AS3935 e parametri NESA.
 
 ## Web UI
@@ -74,7 +78,7 @@ Le API dinamiche sono documentate in `docs/API.md`.
 
 Il buffer PubSubClient è 4096 byte. Il payload corrente include anche i due NESA e le statistiche MQTT.
 
-Il backoff si resetta al valore base dopo una connessione riuscita.
+Il backoff si resetta al valore base dopo una connessione riuscita. Il payload applicativo riusa un buffer `String` riservato, riducendo allocazioni ripetute.
 
 ## Note di test hardware
 
@@ -89,4 +93,10 @@ La CI verifica compilazione e dimensioni, ma non sostituisce il collaudo sul dis
 7. lettura ADS1115 con sensibilità reale;
 8. pin map e sensori disabilitati;
 9. salvataggio configurazione e riavvio;
-10. factory reset e accesso `admin/admin`.
+10. factory reset e accesso `admin/admin`;
+11. OTA autenticato;
+12. scollegamento/ricollegamento di sensori I2C e NESA senza reboot generale.
+
+## Esito
+
+Il controllo generale del codice e della documentazione non evidenzia modifiche richieste ancora mancanti nell'ambito v0.7.3. Restano da validare sul dispositivo reale i comportamenti elettrici e i recuperi dopo disconnessione fisica dei sensori.
