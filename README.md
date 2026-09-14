@@ -53,7 +53,7 @@ Il NESA RSG1-N viene acquisito con ADS1115 in differenziale `A0-A1`, gain `±0,2
 
 Entrambe le interfacce NESA tentano il recupero automatico dopo un errore di inizializzazione senza richiedere il riavvio dell'ESP32. L'ADS1115 viene inoltre controllato durante il funzionamento: una disconnessione viene rilevata e il driver viene reinizializzato al ciclo successivo.
 
-Vedere [`docs/NESA.md`](docs/NESA.md).
+Vedere [`docs/NESA.md`](docs/NESA.md) e [`docs/SENSORI.md`](docs/SENSORI.md).
 
 ## Robustezza v0.7.3
 
@@ -139,6 +139,7 @@ Vedere [`docs/MQTT.md`](docs/MQTT.md).
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architettura e flusso dati;
 - [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — configurazione, default, validazione e NVS;
 - [`docs/PINOUT.md`](docs/PINOUT.md) — GPIO, bus e indirizzi;
+- [`docs/SENSORI.md`](docs/SENSORI.md) — caratteristiche tecniche di tutti i sensori, con approfondimento NESA;
 - [`docs/NESA.md`](docs/NESA.md) — TA-N/MAX31865 e RSG1-N/ADS1115;
 - [`docs/MQTT.md`](docs/MQTT.md) — topic, payload e diagnostica MQTT;
 - [`docs/API.md`](docs/API.md) — endpoint Web/API e OTA;
