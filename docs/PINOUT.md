@@ -61,6 +61,18 @@ RREF = 430 ohm
 
 Breakout Adafruit-compatible/DollaTek equivalenti sono adatti se configurati per PT100/RREF ~430 ohm. **MAX31855 non è compatibile** perché è per termocoppie.
 
+Il cablaggio dei quattro fili della PT100 verso i morsetti RTD del breakout dipende dal layout del modulo specifico: prima del montaggio verificare le serigrafie e la configurazione 4-wire prevista dal produttore del breakout.
+
+## NESA RSG1-N / ADS1115
+
+```text
+ESP32 GPIO21 SDA ↔ ADS1115 SDA
+ESP32 GPIO22 SCL ↔ ADS1115 SCL
+RSG1-N + / -     → ADS1115 A0 / A1
+```
+
+La lettura è differenziale A0-A1. Default ADS1115 `0x48`, gain ±0,256 V.
+
 ## UART SDS011
 
 ```text
@@ -99,6 +111,12 @@ La v0.7.3 verifica automaticamente:
 - esclusione GPIO6..11.
 
 Se un valore NVS non è valido viene corretto soltanto quel parametro, senza cancellare il resto della configurazione.
+
+## Identificazione pin dalla Web UI
+
+Il pulsante **PIN** usa i valori correnti restituiti da `/api/status`, quindi un GPIO modificato dalla configurazione viene mostrato con il nuovo valore dopo il riavvio.
+
+Per le periferiche con pin hardware fissi nell'attuale baseline, come SPI SCK/MISO/MOSI del MAX31865, la mappa mostra rispettivamente GPIO18/19/23.
 
 ## Disabilitazione sensori
 
