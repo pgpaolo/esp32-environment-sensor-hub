@@ -62,6 +62,7 @@ class SensorHub {
   SparkFun_AS3935 *_lightning = nullptr;
   volatile bool _asIrq = false;
   bool _immediatePublish = false;
+  uint32_t _asLastInitAttemptMs = 0;
 
   static SensorHub *_instance;
   static void IRAM_ATTR as3935Isr();
