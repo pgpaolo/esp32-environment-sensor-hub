@@ -31,8 +31,9 @@ struct AppConfig {
   String wifiDns2 = "1.1.1.1";
   String timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
 
+  // Web UI authentication. Factory/default credentials are admin/admin.
   String webUser = "admin";
-  String webPassword;
+  String webPassword = "admin";
 
   String mqttHost;
   uint16_t mqttPort = 1883;
