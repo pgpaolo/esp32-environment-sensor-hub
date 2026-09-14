@@ -1,44 +1,80 @@
 # ESP32 Environment Sensor Hub
 
-Firmware PlatformIO/Arduino per un nodo ambientale ESP32 dedicato a sensori locali, Web UI, MQTT, diagnostica e OTA. Nessuna funzione RF Oregon/Technoline e inclusa: la parte radio resta separata nel gateway dedicato.
+Firmware PlatformIO/Arduino per un nodo ambientale ESP32 dedicato a sensori locali, Web UI, MQTT, diagnostica e OTA. La parte RF Oregon/Technoline **non** è inclusa in questo progetto e resta gestita dal gateway dedicato.
 
-## Versione corrente
+## Stato del progetto
 
-Baseline firmware: **v0.7.3**.
+Versione firmware corrente: **v0.7.3**.
 
-Sensori supportati:
+La build `esp32dev` è verificata da GitHub Actions. L'ultima build funzionale della v0.7.3 ha riportato:
 
-- BME280
-- DHT11
-- BH1750
-- INA219
-- UV analogico / GUVA
-- SDS011
-- AS3935
-- NESA TA-N tramite MAX31865 / PT100 4 fili
-- NESA RSG1-N tramite ADS1115 differenziale
+- RAM statica: **51.036 byte / 327.680 byte (15,6%)**;
+- flash applicativa: **1.134.213 byte / 1.966.080 byte (57,7%)**;
+- risultato: **SUCCESS**.
 
-Il firmware include inoltre relay, configurazione persistente NVS, Web UI compatta, diagnostica, MQTT JSON e aggiornamento OTA da browser.
+## Sensori supportati
 
-## Novita v0.7.3
+| Sensore | Interfaccia | Stato default |
+|---|---|---|
+| BME280 | I2C | abilitato |
+| DHT11 | GPIO | abilitato |
+| BH1750 | I2C | abilitato |
+| INA219 | I2C | abilitato |
+| UV analogico / GUVA | ADC1 | abilitato |
+| SDS011 | UART2 | abilitato |
+| AS3935 | I2C + IRQ | abilitato |
+| NESA TA-N / PT100 | MAX31865 + SPI | disabilitato |
+| NESA RSG1-N | ADS1115 + I2C | disabilitato |
+
+Il firmware include inoltre relay, configurazione persistente NVS, Web UI compatta, diagnostica, MQTT JSON, scansione I2C e aggiornamento OTA da browser.
+
+## NESA: hardware previsto
+
+### TA-N
+
+Il NESA TA-N previsto dal progetto è una **PT100 a 4 fili** e richiede il front-end **MAX31865**. Il MAX31865 non viene bypassato: misura la RTD, gestisce il collegamento a 4 fili e fornisce la conversione digitale via SPI.
+
+Configurazione firmware corrente:
+
+```text
+RTD nominale : 100 ohm
+RREF         : 430 ohm
+cablaggio    : 4 fili
+SPI SCK      : GPIO18
+SPI MISO     : GPIO19
+SPI MOSI     : GPIO23
+CS           : GPIO13
+```
+
+Sono adatti breakout MAX31865 per PT100, inclusi moduli Adafruit-compatible/DollaTek equivalenti, purché configurati per **PT100 / RREF ~430 ohm**. Un MAX31855 per termocoppie K **non è compatibile** con questo sensore.
+
+### RSG1-N
+
+Il NESA RSG1-N viene acquisito con ADS1115 in differenziale `A0-A1`, gain `±0,256 V`, indirizzo default `0x48`. La sensibilità deve essere impostata secondo il certificato di taratura del singolo piranometro.
+
+Vedere [`docs/NESA.md`](docs/NESA.md).
+
+## Novità v0.7.3
 
 La v0.7.3 introduce una revisione dedicata alla robustezza:
 
-- Web UI spostata in `PROGMEM`, evitando grandi concatenazioni `String` in heap;
+- pagine Web statiche in `PROGMEM` (`src/WebAssets.h`), senza grandi concatenazioni `String` per dashboard/configurazione;
 - JSON Web serializzato direttamente sul client HTTP;
-- diagnostica memoria con heap libero, heap minimo, largest free block e frammentazione indicativa;
+- diagnostica memoria con heap libero, minimo heap libero, largest free block e frammentazione indicativa;
 - schema NVS versionato (`cfgver`) con migrazione automatica;
-- validazione dei principali parametri prima dell'uso;
+- validazione dei principali parametri prima dell'uso e del salvataggio;
 - statistiche MQTT separate per connect, disconnect e publish;
 - reconnect MQTT con backoff progressivo fino a 60 secondi;
 - password Wi-Fi, MQTT e Web mai restituite dalla Web UI;
-- i campi password vuoti mantengono la credenziale gia salvata.
-
-Per i dettagli vedere [`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md).
+- campo password vuoto = mantiene il valore salvato;
+- pulsante **PIN** per ogni sensore e mappa pin completa in Diagnostica;
+- abilitazione/disabilitazione individuale dei sensori dalla configurazione;
+- AP di manutenzione fisso su `192.168.4.1`;
+- autenticazione Web factory `admin / admin`.
 
 ## Web UI e accesso di manutenzione
 
-L'ESP32 espone una Web UI protetta da autenticazione HTTP Basic.
+La Web UI è protetta da autenticazione HTTP Basic.
 
 Credenziali factory/default:
 
@@ -47,109 +83,76 @@ user: admin
 password: admin
 ```
 
-Quando viene avviato l'AP di manutenzione, l'indirizzo e fissato a:
+Quando viene avviato l'AP di manutenzione:
 
 ```text
 http://192.168.4.1/
 ```
 
-L'AP viene attivato quando non e disponibile una configurazione Wi-Fi valida, quando il collegamento STA fallisce oppure mantenendo premuto il pulsante BOOT/config all'avvio. Un factory reset ripristina anche `admin/admin`.
+L'AP viene avviato quando non è disponibile una configurazione Wi-Fi valida, quando il collegamento STA fallisce oppure mantenendo premuto il pulsante BOOT/config all'avvio. Il factory reset ripristina anche `admin/admin`.
 
-Le credenziali Web possono essere cambiate dalla pagina **Configurazione -> Sistema -> Web / sicurezza**. La password corrente non viene mai rimandata al browser: lasciare il campo vuoto mantiene quella salvata. E disponibile anche il ripristino esplicito `admin/admin`.
+Le password salvate a runtime restano in NVS **senza cifratura**, per scelta progettuale. Non vengono però reinviate al browser dalla pagina di configurazione.
 
 ## Abilitazione e disabilitazione sensori
 
-Da **Configurazione -> Sensori** e presente il pannello **Sensori attivi**. Ogni sensore puo essere abilitato o disabilitato singolarmente. La modifica viene applicata dopo **Salva e riavvia**.
+In **Configurazione → Sensori → Sensori attivi** ogni sensore può essere abilitato o disabilitato singolarmente. La modifica viene applicata con **Salva e riavvia**.
 
 Un sensore disabilitato:
 
 - non viene inizializzato;
 - non viene interrogato periodicamente;
-- non concorre al conteggio Health;
-- resta visibile in dashboard come `disabilitato`.
+- non concorre allo stato Health;
+- resta identificabile nella dashboard/configurazione come disabilitato.
 
-## Identificazione pin dalla dashboard
+## Identificazione pin
 
-Ogni card sensore contiene un pulsante **PIN**. Il pulsante mostra direttamente la mappa dei collegamenti effettivi configurati sul dispositivo. In **Diagnostica** e inoltre disponibile il pulsante **Mappa pin** per visualizzare il riepilogo completo.
+Ogni card sensore dispone del pulsante **PIN**. Il popup usa la configurazione runtime corrente. In **Diagnostica → Mappa pin** è disponibile anche il riepilogo completo.
 
-Vedere anche [`docs/PINOUT.md`](docs/PINOUT.md).
-
-## Pinout ESP32 DevKit predefinito
-
-| Funzione | GPIO |
-|---|---:|
-| LED stato | 12 |
-| NESA TA-N / MAX31865 CS | 13 |
-| DHT11 DATA | 14 |
-| Relay | 15 |
-| SDS011 RX ESP32 | 16 |
-| SDS011 TX ESP32 | 17 |
-| SPI SCK | 18 |
-| SPI MISO | 19 |
-| I2C SDA | 21 |
-| I2C SCL | 22 |
-| SPI MOSI | 23 |
-| AS3935 IRQ | 27 |
-| UV analogico ADC1 | 34 |
-| BOOT/config | 0 |
-
-I dispositivi I2C condividono SDA/SCL. Gli indirizzi di default sono documentati in `docs/PINOUT.md`.
+Vedere [`docs/PINOUT.md`](docs/PINOUT.md).
 
 ## SDS011
 
-L'ESP32 resta sempre acceso. Solo l'SDS011 viene messo in sleep per preservare laser e ventola. Il ciclo standard e:
+L'ESP32 resta sempre acceso. Solo l'SDS011 viene messo in sleep:
 
 ```text
-sleep -> wake -> warm-up -> campioni -> media -> MQTT/Web -> sleep
+sleep → wake → warm-up → campioni → media → MQTT/Web → sleep
 ```
 
-Il ciclo e configurabile dalla Web UI.
-
-## Sensori NESA
-
-I due sensori NESA sono predisposti ma disabilitati di default finche l'hardware non viene installato:
-
-- **TA-N**: MAX31865, PT100 4 fili, SPI;
-- **RSG1-N**: ADS1115, ingresso differenziale A0-A1, I2C.
-
-Per dettagli vedere [`docs/NESA.md`](docs/NESA.md).
+Default: ciclo 60 min, warm-up 30 s, 5 campioni, timeout awake 120 s.
 
 ## Configurazione persistente
 
-La configurazione principale viene salvata nel namespace NVS `sensorhub`; i parametri NESA nel namespace `sensorhub_nesa`.
+La configurazione principale usa il namespace NVS `sensorhub`; i parametri NESA usano `sensorhub_nesa`.
 
-La v0.7.3 introduce lo schema configurazione versione **1**. Le configurazioni delle versioni precedenti vengono caricate, completate con i default per le nuove chiavi, validate e migrate automaticamente senza richiedere un factory reset.
+Schema corrente: **1**. Le configurazioni precedenti vengono caricate con i default per le nuove chiavi, validate e migrate automaticamente senza richiedere un factory reset.
 
 ## MQTT
 
-MQTT usa:
+Topic principali:
 
 ```text
 <base_topic>/status
 <base_topic>/telemetry
 ```
 
-`status` utilizza LWT retained `online/offline`.
+`status` usa LWT retained `online/offline`. Il reconnect adotta backoff progressivo fino a 60 s. La diagnostica espone tentativi, connessioni riuscite, disconnessioni, publish riusciti/falliti, stato PubSubClient e backoff corrente.
 
-Il reconnect usa backoff progressivo fino a 60 s. In Diagnostica sono disponibili tentativi di connessione, connessioni riuscite, disconnessioni, publish riusciti/falliti, codice PubSubClient e backoff corrente.
+Vedere [`docs/MQTT.md`](docs/MQTT.md).
 
-## Diagnostica memoria
+## Documentazione
 
-La pagina **Diagnostica** mostra:
-
-- heap libero;
-- minimo heap libero;
-- largest free block;
-- frammentazione indicativa;
-- dimensione flash;
-- reset reason;
-- versione firmware e schema configurazione.
-
-Le pagine Web statiche sono memorizzate in flash/PROGMEM, riducendo le grandi allocazioni temporanee che erano necessarie nelle versioni precedenti.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architettura e flusso dati;
+- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — configurazione, default, validazione e NVS;
+- [`docs/PINOUT.md`](docs/PINOUT.md) — GPIO, bus e indirizzi;
+- [`docs/NESA.md`](docs/NESA.md) — TA-N/MAX31865 e RSG1-N/ADS1115;
+- [`docs/MQTT.md`](docs/MQTT.md) — topic, payload e diagnostica MQTT;
+- [`docs/API.md`](docs/API.md) — endpoint Web/API;
+- [`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md) — memoria, PROGMEM, versioning e fail-safe;
+- [`CHANGELOG.md`](CHANGELOG.md) — cronologia delle revisioni principali.
 
 ## Credenziali Wi-Fi locali
 
-Le credenziali Wi-Fi factory locali non vengono versionate. Copiare:
+Le credenziali factory locali non vengono versionate. Copiare:
 
 ```text
 include/DefaultSecrets.example.h
@@ -161,9 +164,7 @@ in:
 include/DefaultSecrets.h
 ```
 
-e inserire i valori locali. Il file reale e escluso da Git.
-
-Le credenziali salvate a runtime restano in NVS senza cifratura; la cifratura NVS non e abilitata nel progetto.
+e inserire i valori locali. Il file reale è escluso da Git.
 
 ## Build
 
@@ -173,4 +174,4 @@ pio run -t upload
 pio device monitor
 ```
 
-La GitHub Action `PlatformIO Build` verifica automaticamente la build `esp32dev` a ogni push.
+La GitHub Action `PlatformIO Build` verifica automaticamente `pio run -e esp32dev` a ogni push.
