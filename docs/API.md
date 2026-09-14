@@ -2,7 +2,7 @@
 
 ESP32 Environment Sensor Hub v0.7.3 espone Web UI e API sulla porta TCP 80.
 
-Tutti gli endpoint sono protetti dalla stessa autenticazione HTTP Basic della Web UI.
+Tutti gli endpoint, inclusi i callback di upload OTA, sono protetti dalla stessa autenticazione HTTP Basic.
 
 Credenziali factory:
 
@@ -17,31 +17,18 @@ admin / admin
 | GET | `/` | Dashboard sensori e diagnostica |
 | GET | `/config` | Pagina configurazione |
 | GET | `/update` | Pagina OTA |
-| POST | `/update` | Upload `firmware.bin` |
+| POST | `/update` | Upload `firmware.bin` autenticato |
 
 Le pagine statiche principali sono memorizzate in PROGMEM in `src/WebAssets.h`.
 
-## API stato
+## GET `/api/status`
 
-### GET `/api/status`
+Restituisce lo stato runtime. Sezioni principali:
 
-Restituisce lo stato runtime del sistema.
-
-Sezioni principali:
-
-- `system` — Wi-Fi, IP, RSSI, heap, flash, firmware, reset reason, config schema;
-- `mqtt` — stato, tentativi, successi, disconnessioni, publish e backoff;
-- `pins` — GPIO configurati/effettivi;
-- `relay`;
-- `bh1750`;
-- `bme280`;
-- `dht11`;
-- `ina219`;
-- `uv`;
-- `nesa_ta_n`;
-- `nesa_rsg1_n`;
-- `sds011`;
-- `as3935`.
+- `system`: Wi-Fi, IP, RSSI, heap, flash, firmware, reset reason, config schema;
+- `mqtt`: stato, tentativi, successi, disconnessioni, publish e backoff;
+- `pins`: GPIO configurati/effettivi;
+- `relay` e tutti i blocchi sensore.
 
 Esempio parziale:
 
@@ -62,99 +49,66 @@ Esempio parziale:
 }
 ```
 
-## API configurazione
+## GET `/api/config`
 
-### GET `/api/config`
-
-Restituisce i parametri necessari a popolare la pagina configurazione.
-
-Per sicurezza **non** restituisce:
+Restituisce i parametri necessari alla pagina configurazione ma **non** restituisce:
 
 - password Wi-Fi;
 - password MQTT;
 - password Web;
-- testo della CA MQTT.
+- testo CA MQTT.
 
-Per questi valori restituisce solo flag come:
+Espone soltanto i flag `wifi_password_set`, `mqtt_password_set`, `web_password_set` e `mqtt_ca_set`.
 
-```text
-wifi_password_set
-mqtt_password_set
-web_password_set
-mqtt_ca_set
-```
+## GET `/api/i2c`
 
-## Scansione I2C
+Restituisce lo scan testuale I2C e identifica i dispositivi noti. ADS1115/RSG1-N viene riconosciuto; AS3935 `0x00` viene segnalato come general-call ma non interrogato attivamente dallo scanner.
 
-### GET `/api/i2c`
+## POST `/api/relay/toggle`
 
-Restituisce una rappresentazione testuale degli indirizzi I2C rilevati sul bus configurato.
+Commuta il relay configurato.
 
-Utile per verificare BH1750, BME280, INA219, AS3935 e ADS1115.
+## POST `/api/sds/measure`
 
-## Relay
+Richiede una misura SDS011 fuori ciclo. Risponde `200` se accettata, `409` se lo stato corrente non lo permette.
 
-### POST `/api/relay/toggle`
+## POST `/api/sds/sleep`
 
-Commuta lo stato del relay configurato.
+Forza SDS011 allo stato sleep. Risponde `200` in caso di successo, `409` se non applicabile.
 
-Risposta:
+## POST `/save`
+
+Riceve il form, applica la validazione, salva i namespace NVS e riavvia.
 
 ```text
-OK
+password vuota  → mantiene il valore corrente
+nuovo valore    → sostituisce
+clear flag      → cancella, ove previsto
 ```
 
-## SDS011
+Il reset credenziali Web riporta `admin/admin`.
 
-### POST `/api/sds/measure`
+## GET `/factory`
 
-Richiede una misura SDS011 fuori ciclo.
+Cancella `sensorhub` e `sensorhub_nesa`, quindi riavvia con i default firmware. L'endpoint richiede autenticazione.
 
-HTTP `200` quando la richiesta viene accettata; `409` se lo stato corrente non consente di avviare la misura.
+## OTA `/update`
 
-### POST `/api/sds/sleep`
+Il GET mostra la pagina di upload dopo autenticazione.
 
-Forza l'SDS011 allo stato sleep.
+Il POST è protetto in due punti:
 
-HTTP `200` in caso di successo; `409` se l'operazione non può essere eseguita.
+1. handler finale autenticato;
+2. callback che riceve i chunk autenticato **prima** di eseguire `Update.begin()`, `Update.write()` o `Update.end()`.
 
-## Salvataggio configurazione
-
-### POST `/save`
-
-Riceve i campi del form configurazione, applica validazione, salva in NVS e riavvia l'ESP32.
-
-Le password seguono la logica:
-
-```text
-campo vuoto  → mantiene il valore corrente
-nuovo valore → sostituisce
-clear flag   → cancella, ove previsto
-```
-
-Il ripristino delle credenziali Web riporta `admin/admin`.
-
-## Factory reset
-
-### GET `/factory`
-
-Cancella i namespace NVS:
-
-```text
-sensorhub
-sensorhub_nesa
-```
-
-e riavvia il dispositivo con i default firmware.
+Questa doppia verifica evita che un client non autenticato possa iniziare a scrivere dati nella partizione OTA prima di ricevere una risposta 401.
 
 ## Autenticazione
 
-L'autenticazione è HTTP Basic. Non è previsto HTTPS per la Web UI nella baseline v0.7.3.
-
-L'AP di manutenzione usa:
+La baseline usa HTTP Basic e non HTTPS Web. L'AP di manutenzione usa:
 
 ```text
 192.168.4.1
 ```
 
-La password Web default resta `admin`, ma può essere modificata dalla configurazione.
+La password factory è `admin`, modificabile dalla configurazione.
