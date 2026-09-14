@@ -2,6 +2,16 @@
 
 ## Unreleased — develop
 
+### Provisioning Wi-Fi
+
+- aggiunta procedura guidata di primo avvio su `192.168.4.1` quando non è ancora configurato un SSID;
+- scansione Wi-Fi asincrona e on-demand senza bloccare il Web server;
+- elenco reti deduplicato e ordinato per RSSI, con canale e indicazione rete aperta/protetta;
+- selezione SSID dalla Web UI e salvataggio rapido della password;
+- il provisioning rapido usa DHCP e riavvia l'ESP32 dopo il salvataggio;
+- nuova pagina sempre disponibile su `/wifi` e API `POST/GET /api/wifi/scan`, `POST /api/wifi/configure`;
+- in assenza di collegamento STA, `/config` apre il provisioning salvo richiesta esplicita della configurazione avanzata.
+
 ### AdminSensor Remote
 
 - aggiunto accesso amministrativo remoto opzionale tramite base URL HTTPS configurabile;

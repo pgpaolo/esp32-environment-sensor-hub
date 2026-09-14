@@ -2,6 +2,7 @@
 #include "BuildInfo.h"
 #include "NesaConfigStore.h"
 #include "WebAssets.h"
+#include "WifiSetupPage.h"
 #include "remote_access.h"
 
 #include <WiFi.h>
@@ -51,6 +52,10 @@ void WebUi::sendJson(JsonDocument &doc) {
 
 void WebUi::handleRoot() {
   if (!auth()) return;
+  if (_cfg.wifiSsid.isEmpty()) {
+    _server.send_P(200, "text/html; charset=utf-8", WifiSetupPage::PAGE);
+    return;
+  }
   _server.send_P(200, "text/html; charset=utf-8", WebAssets::ROOT_PAGE);
 }
 
@@ -351,6 +356,10 @@ uint8_t WebUi::parseHexByte(const String &value, uint8_t fallback) {
 
 void WebUi::handleConfig() {
   if (!auth()) return;
+  if (!_server.hasArg("advanced") && WiFi.status() != WL_CONNECTED) {
+    _server.send_P(200, "text/html; charset=utf-8", WifiSetupPage::PAGE);
+    return;
+  }
   _server.send_P(200, "text/html; charset=utf-8", WebAssets::CONFIG_PAGE);
 }
 
@@ -523,6 +532,151 @@ void WebUi::begin() {
     if (!auth()) return;
     _server.send(200, "text/plain", _sensors.scanI2c());
   });
+
+  // Wi-Fi provisioning is intentionally on-demand and asynchronous so the
+  // Web UI remains responsive while the radio scans nearby access points.
+  _server.on("/wifi", HTTP_GET, [this]() {
+    if (!auth()) return;
+    _server.send_P(200, "text/html; charset=utf-8", WifiSetupPage::PAGE);
+  });
+  _server.on("/api/wifi/scan", HTTP_POST, [this]() {
+    if (!auth()) return;
+    const int16_t scanState = WiFi.scanComplete();
+    if (scanState == -1) {
+      _server.send(202, "application/json", "{\"status\":\"running\"}");
+      return;
+    }
+    WiFi.scanDelete();
+    const int16_t started = WiFi.scanNetworks(true, false);
+    if (started == -2) {
+      _server.send(500, "text/plain", "Impossibile avviare la scansione Wi-Fi");
+      return;
+    }
+    _server.send(202, "application/json", "{\"status\":\"running\"}");
+  });
+  _server.on("/api/wifi/scan", HTTP_GET, [this]() {
+    if (!auth()) return;
+    const int16_t countRaw = WiFi.scanComplete();
+    JsonDocument doc;
+    if (countRaw == -1) {
+      doc["status"] = "running";
+      sendJson(doc);
+      return;
+    }
+    if (countRaw == -2) {
+      doc["status"] = "idle";
+      doc["networks"].to<JsonArray>();
+      sendJson(doc);
+      return;
+    }
+
+    struct WifiEntry {
+      String ssid;
+      int32_t rssi = -127;
+      int32_t channel = 0;
+      bool secure = true;
+    };
+    constexpr size_t kMaxNetworks = 24;
+    WifiEntry entries[kMaxNetworks];
+    size_t count = 0;
+
+    for (int16_t i = 0; i < countRaw; ++i) {
+      String ssid = WiFi.SSID(i);
+      if (ssid.isEmpty()) continue;
+      const int32_t rssi = WiFi.RSSI(i);
+      const int32_t channel = WiFi.channel(i);
+      const bool secure = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+
+      int existing = -1;
+      for (size_t j = 0; j < count; ++j) {
+        if (entries[j].ssid == ssid) {
+          existing = (int)j;
+          break;
+        }
+      }
+      if (existing >= 0) {
+        if (rssi > entries[existing].rssi) {
+          entries[existing].rssi = rssi;
+          entries[existing].channel = channel;
+          entries[existing].secure = secure;
+        }
+        continue;
+      }
+
+      if (count < kMaxNetworks) {
+        entries[count].ssid = ssid;
+        entries[count].rssi = rssi;
+        entries[count].channel = channel;
+        entries[count].secure = secure;
+        ++count;
+      } else {
+        size_t weakest = 0;
+        for (size_t j = 1; j < count; ++j) {
+          if (entries[j].rssi < entries[weakest].rssi) weakest = j;
+        }
+        if (rssi > entries[weakest].rssi) {
+          entries[weakest].ssid = ssid;
+          entries[weakest].rssi = rssi;
+          entries[weakest].channel = channel;
+          entries[weakest].secure = secure;
+        }
+      }
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+      for (size_t j = i + 1; j < count; ++j) {
+        if (entries[j].rssi > entries[i].rssi) {
+          WifiEntry tmp = entries[i];
+          entries[i] = entries[j];
+          entries[j] = tmp;
+        }
+      }
+    }
+
+    doc["status"] = "complete";
+    JsonArray networks = doc["networks"].to<JsonArray>();
+    for (size_t i = 0; i < count; ++i) {
+      JsonObject item = networks.add<JsonObject>();
+      item["ssid"] = entries[i].ssid;
+      item["rssi"] = entries[i].rssi;
+      item["channel"] = entries[i].channel;
+      item["secure"] = entries[i].secure;
+      item["current"] = entries[i].ssid == _cfg.wifiSsid;
+    }
+    WiFi.scanDelete();
+    sendJson(doc);
+  });
+  _server.on("/api/wifi/configure", HTTP_POST, [this]() {
+    if (!auth()) return;
+    if (!_server.hasArg("ssid")) {
+      _server.send(400, "text/plain", "SSID mancante");
+      return;
+    }
+    const String ssid = _server.arg("ssid");
+    const String password = _server.hasArg("password") ? _server.arg("password") : String();
+    if (ssid.isEmpty() || ssid.length() > 32) {
+      _server.send(400, "text/plain", "SSID non valido");
+      return;
+    }
+    if (password.length() > 64) {
+      _server.send(400, "text/plain", "Password Wi-Fi troppo lunga");
+      return;
+    }
+
+    _cfg.wifiSsid = ssid;
+    _cfg.wifiPassword = password;
+    // Quick provisioning always returns to DHCP. Static addressing remains
+    // available from the advanced configuration page after first connection.
+    _cfg.wifiStaticIp = false;
+    ConfigStore::validate(_cfg);
+    _store.save(_cfg);
+    saveNesaConfig(_cfg);
+
+    _server.send(200, "text/plain", "Configurazione Wi-Fi salvata; riavvio in corso");
+    delay(700);
+    ESP.restart();
+  });
+
   _server.on("/api/relay/toggle", HTTP_POST, [this]() {
     if (!auth()) return;
     _sensors.toggleRelay();
