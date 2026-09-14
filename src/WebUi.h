@@ -11,9 +11,6 @@
 #include "MqttManager.h"
 #include "SensorHub.h"
 
-// Compatibility helper for Arduino String::toInt() (long) in compact form parsing.
-inline long max(int a, long b) { return b > (long)a ? b : (long)a; }
-
 class WebUi {
  public:
   WebUi(AppConfig &cfg, RuntimeData &data, ConfigStore &store, MqttManager &mqtt, SensorHub &sensors);
