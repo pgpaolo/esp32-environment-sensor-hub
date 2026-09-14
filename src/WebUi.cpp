@@ -472,6 +472,7 @@ void WebUi::setupOta() {
 
   _server.on("/update", HTTP_POST,
     [this]() {
+      if (!auth()) return;
       const bool ok = !Update.hasError();
       _server.send(200, "text/plain", ok ? "OK - rebooting" : "UPDATE FAILED");
       if (ok) {
@@ -480,6 +481,10 @@ void WebUi::setupOta() {
       }
     },
     [this]() {
+      // The upload callback runs before the final POST handler, therefore it
+      // must enforce authentication itself or an unauthenticated client could
+      // write firmware chunks before receiving the final 401 response.
+      if (!_server.authenticate(_cfg.webUser.c_str(), _cfg.webPassword.c_str())) return;
       HTTPUpload &u = _server.upload();
       if (u.status == UPLOAD_FILE_START) Update.begin(UPDATE_SIZE_UNKNOWN);
       else if (u.status == UPLOAD_FILE_WRITE) Update.write(u.buf, u.currentSize);
