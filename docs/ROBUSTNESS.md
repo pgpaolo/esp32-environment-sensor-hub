@@ -50,7 +50,7 @@ PubSubClient usa un buffer da **4096 byte**.
 
 Il JSON telemetrico non crea più una nuova `String` multi-kilobyte ad ogni ciclo: `MqttManager` mantiene un buffer riutilizzabile, inizialmente riservato a 3072 byte. In questo modo le pubblicazioni periodiche riducono allocazioni/deallocazioni ripetute e quindi il rischio di frammentazione dell'heap nel lungo periodo.
 
-Reconnect progressivo:
+Reconnect progressivo con base default 5 s:
 
 ```text
 5 → 10 → 20 → 40 → 60 s
@@ -77,13 +77,29 @@ sensorhub
 sensorhub_nesa
 ```
 
-Entrambi usano:
+Schema logico corrente:
 
 ```text
 cfgver = 1
 ```
 
-La configurazione principale viene caricata e validata, poi viene caricato il namespace NESA. Al termine viene eseguita una **seconda validazione dell'oggetto completo**; eventuali correzioni vengono persistite in entrambi i namespace. Questo intercetta anche conflitti che possono emergere soltanto dopo il merge, ad esempio un indirizzo I2C INA219/ADS1115 coincidente.
+La chiave `cfgver` viene memorizzata nel namespace principale `sensorhub`. Il namespace `sensorhub_nesa` contiene i parametri NESA ma fa parte dello stesso schema logico firmware.
+
+Sequenza al boot:
+
+```text
+load sensorhub
+  ↓
+validazione / migrazione base
+  ↓
+load sensorhub_nesa
+  ↓
+seconda validazione dell'oggetto completo
+  ↓
+persistenza delle sole correzioni necessarie
+```
+
+La seconda validazione intercetta anche conflitti che emergono solo dopo il merge, ad esempio un indirizzo I2C INA219/ADS1115 coincidente.
 
 ## Validazione configurazione
 
@@ -145,6 +161,8 @@ AS3935, se assente al boot, viene ritentato periodicamente senza riavvio e senza
 ### NESA TA-N
 
 MAX31865 viene allocato una sola volta; un init fallito lascia l'interfaccia non inizializzata e viene ritentato ai cicli successivi senza `new/delete` ripetuti. I fault RTD vengono cancellati sul convertitore e riportati in diagnostica.
+
+La baseline è **PT100 4 fili**, `R0=100 ohm`, `RREF=430 ohm`. Il MAX31865 è necessario; MAX31855 non è compatibile con questa RTD.
 
 ### NESA RSG1-N
 
