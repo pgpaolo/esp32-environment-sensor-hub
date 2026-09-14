@@ -26,17 +26,14 @@ class WebUi {
   WebServer _server;
 
   bool auth();
-  String esc(const String &s) const;
-  String chk(bool v) const;
-  String sel(bool v) const;
-  String pageStart(const String &title) const;
-  String pageEnd() const;
   void handleRoot();
   void handleApiStatus();
+  void handleApiConfig();
   void handleConfig();
   void handleSave();
   void handleFactory();
   void setupOta();
+  void sendJson(JsonDocument &doc);
   static uint8_t parseHexByte(const String &value, uint8_t fallback);
   static uint32_t nowEpoch();
 };
