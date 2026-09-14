@@ -23,6 +23,8 @@ void SensorHub::beginNesaTa() {
     _data->nesaTaOk = false;
     _data->nesaTaFailures++;
     _data->nesaTaLastError = "max31865_init_failed";
+    delete _nesaTa;
+    _nesaTa = nullptr;  // Allow a clean retry on the next sensor cycle.
     return;
   }
 
@@ -81,8 +83,11 @@ void SensorHub::beginNesaRsg1() {
   _nesaRsg1 = new Adafruit_ADS1115();
   if (!_nesaRsg1->begin(_cfg->nesaRsg1AdsAddress, &Wire)) {
     _data->nesaRsg1Ok = false;
+    _data->nesaRsg1DetectedAddress = 0xFF;
     _data->nesaRsg1Failures++;
     _data->nesaRsg1LastError = "ads1115_not_found";
+    delete _nesaRsg1;
+    _nesaRsg1 = nullptr;  // Allow hot-plug/recovery without rebooting the ESP32.
     return;
   }
 
