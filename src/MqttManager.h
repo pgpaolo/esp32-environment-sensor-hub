@@ -27,8 +27,12 @@ class MqttManager {
   WiFiClientSecure _secure;
   PubSubClient *_mqtt = nullptr;
   uint32_t _lastConnectAttemptMs = 0;
+  uint16_t _currentBackoffSec = 0;
+  bool _lastObservedConnected = false;
 
   bool ensureConnected();
+  void observeConnectionState();
+  void registerPublishResult(bool ok);
   String topic(const char *suffix) const;
   static uint32_t nowEpoch();
 };
