@@ -1,36 +1,34 @@
 # Robustezza, memoria, configurazione e MQTT
 
-Questo documento descrive le misure presenti in ESP32 Environment Sensor Hub **v0.7.3** per ridurre frammentazione heap, rendere la configurazione persistente aggiornabile nel tempo e migliorare la diagnostica.
+Questo documento descrive le misure presenti in ESP32 Environment Sensor Hub **v0.7.3** per ridurre frammentazione heap, rendere la configurazione persistente aggiornabile e mantenere i sensori recuperabili senza riavvii inutili.
 
 ## Build di riferimento
 
-Build `esp32dev` verificata con PlatformIO/GitHub Actions:
+Build `esp32dev` verificata con PlatformIO/GitHub Actions dopo il controllo generale:
 
 ```text
-RAM   51.036 / 327.680 byte  = 15,6%
-Flash 1.134.213 / 1.966.080 = 57,7%
+RAM   51.060 / 327.680 byte  = 15,6%
+Flash 1.135.421 / 1.966.080 = 57,8%
 ```
 
-Questi valori sono riferiti all'occupazione statica/link-time. L'heap dinamico reale va controllato sul dispositivo dalla pagina Diagnostica.
+Questi valori sono statici/link-time. L'heap dinamico reale va controllato dalla pagina Diagnostica.
 
 ## Web UI in PROGMEM
 
-Le pagine HTML/CSS/JavaScript principali non vengono più costruite concatenando grandi oggetti `String` in RAM.
-
-Gli asset statici sono memorizzati in flash tramite `PROGMEM` in:
+Dashboard, configurazione e pagina OTA sono memorizzate in flash tramite `PROGMEM` in:
 
 ```text
 src/WebAssets.h
 ```
 
-e serviti con `send_P()`.
+e servite con `send_P()`.
 
-I dati dinamici vengono caricati tramite JSON:
+I dati dinamici arrivano tramite:
 
 - `/api/status`;
 - `/api/config`.
 
-Il JSON Web viene serializzato direttamente sul `WiFiClient`, evitando una seconda copia completa del documento in una `String` temporanea.
+Il JSON Web viene serializzato direttamente sul `WiFiClient`, evitando una seconda copia completa in una grande `String` temporanea.
 
 ## Diagnostica memoria
 
@@ -44,108 +42,15 @@ La Web UI espone:
 - reset reason;
 - firmware e schema configurazione.
 
-La frammentazione indicativa è calcolata da heap libero totale e blocco contiguo più grande. È un indicatore operativo, non una misura assoluta dell'allocatore.
+La frammentazione indicativa deriva dal rapporto fra heap libero totale e blocco contiguo più grande. È un indicatore operativo, non una misura assoluta dell'allocatore.
 
-Per valutare stabilità nel tempo osservare soprattutto:
+## MQTT e allocazioni
 
-1. `min_free_heap`;
-2. `largest_free_block`;
-3. andamento della frammentazione dopo molti accessi Web/MQTT.
+PubSubClient usa un buffer da **4096 byte**.
 
-## Versioning configurazione NVS
+Il JSON telemetrico non crea più una nuova `String` multi-kilobyte ad ogni ciclo: `MqttManager` mantiene un buffer riutilizzabile, inizialmente riservato a 3072 byte. In questo modo le pubblicazioni periodiche riducono allocazioni/deallocazioni ripetute e quindi il rischio di frammentazione dell'heap nel lungo periodo.
 
-Namespace principali:
-
-```text
-sensorhub
-sensorhub_nesa
-```
-
-Entrambi usano la chiave schema:
-
-```text
-cfgver
-```
-
-Versione schema corrente:
-
-```text
-1
-```
-
-All'avvio, una configurazione precedente viene caricata usando i default per le chiavi mancanti, validata e risalvata nel formato corrente quando necessario.
-
-Questo permette di aggiungere parametri futuri senza obbligare a un factory reset.
-
-## Validazione configurazione
-
-Prima dell'uso/salvataggio vengono verificati i principali limiti:
-
-- porta MQTT valida;
-- reconnect MQTT 1..300 s;
-- intervallo sensori 2..86400 s;
-- telemetria 5..86400 s;
-- GPIO esistenti;
-- GPIO6..11 esclusi perché normalmente collegati alla flash;
-- GPIO34..39 esclusi dalle funzioni di output;
-- UV limitato ad ADC1 GPIO32..39;
-- SDA e SCL differenti;
-- RX e TX SDS011 differenti;
-- indirizzi I2C coerenti con i dispositivi supportati;
-- limiti SDS011, UV, AS3935 e NESA;
-- credenziali Web non vuote.
-
-Se un valore persistente risulta non valido viene ripristinato **solo quel parametro** al default firmware.
-
-## Password nella Web UI
-
-Le password restano memorizzate in NVS senza cifratura, per scelta progettuale.
-
-Il firmware non restituisce alla pagina Web:
-
-- password Wi-Fi;
-- password MQTT;
-- password Web;
-- testo della CA MQTT già salvata.
-
-Comportamento:
-
-```text
-campo vuoto       → mantiene il valore già salvato
-nuovo valore      → sostituisce il valore salvato
-checkbox Cancella → cancella Wi-Fi/MQTT password o CA selezionata
-```
-
-Per le credenziali Web è disponibile il ripristino esplicito:
-
-```text
-admin / admin
-```
-
-L'autenticazione è HTTP Basic: limita l'accesso alla UI ma non cifra il traffico HTTP. Sul progetto corrente non è previsto HTTPS Web.
-
-## MQTT
-
-Topic availability:
-
-```text
-<base_topic>/status
-```
-
-Valori retained:
-
-```text
-online
-offline
-```
-
-Telemetria:
-
-```text
-<base_topic>/telemetry
-```
-
-Reconnect progressivo, partendo da `mqttReconnectSec`:
+Reconnect progressivo:
 
 ```text
 5 → 10 → 20 → 40 → 60 s
@@ -153,54 +58,109 @@ Reconnect progressivo, partendo da `mqttReconnectSec`:
 
 Il backoff torna al valore base dopo una connessione riuscita.
 
-Statistiche esposte:
+Statistiche runtime:
 
 - tentativi di connessione;
 - connessioni riuscite;
 - disconnessioni osservate;
-- publish riusciti;
-- publish falliti;
-- ultimo stato PubSubClient;
+- publish riusciti/falliti;
+- stato PubSubClient;
 - backoff corrente;
-- epoch di ultimo connect/disconnect/publish.
+- epoch ultimo connect/disconnect/publish.
 
-Il buffer PubSubClient è fissato a **4096 byte**.
+## Versioning configurazione NVS
 
-## Sensori e fail-safe
-
-Il principio generale è che un singolo sensore guasto non deve fermare l'ESP32.
-
-Un sensore non valido:
+Namespace:
 
 ```text
-fault / read error
-      ↓
-contatore errori
-      ↓
-last_error
-      ↓
-card/Health non OK
-      ↓
-firmware continua a funzionare
+sensorhub
+sensorhub_nesa
 ```
 
-I sensori disabilitati non vengono inizializzati e non concorrono allo stato Health.
+Entrambi usano:
+
+```text
+cfgver = 1
+```
+
+La configurazione principale viene caricata e validata, poi viene caricato il namespace NESA. Al termine viene eseguita una **seconda validazione dell'oggetto completo**; eventuali correzioni vengono persistite in entrambi i namespace. Questo intercetta anche conflitti che possono emergere soltanto dopo il merge, ad esempio un indirizzo I2C INA219/ADS1115 coincidente.
+
+## Validazione configurazione
+
+Sono verificati almeno:
+
+- porta MQTT e reconnect;
+- intervalli sensori/telemetria;
+- GPIO esistenti;
+- esclusione GPIO6..11;
+- GPIO34..39 esclusi dalle funzioni che richiedono output/pull-up;
+- DHT su GPIO bidirezionale valido;
+- BOOT/config su GPIO con `INPUT_PULLUP` utilizzabile;
+- UV esclusivamente su ADC1 GPIO32..39;
+- SDA != SCL e SDS RX != TX;
+- indirizzi I2C dei dispositivi;
+- collisione INA219/ADS1115 quando entrambi abilitati;
+- enum INA219 e modalità UV;
+- offset BME/DHT/BH1750/INA/NESA finiti e in range;
+- limiti SDS011, UV, AS3935 e NESA;
+- credenziali Web non vuote.
+
+Un parametro non valido viene riportato al proprio default senza cancellare il resto della configurazione.
+
+## Password e autenticazione
+
+Le password restano in NVS senza cifratura, per scelta progettuale.
+
+La Web UI non restituisce:
+
+- password Wi-Fi;
+- password MQTT;
+- password Web;
+- testo della CA MQTT salvata.
+
+Campo vuoto = mantiene il valore; i flag espliciti consentono la cancellazione dove prevista. Il ripristino Web riporta `admin/admin`.
+
+L'autenticazione HTTP Basic protegge dashboard, API, configurazione e OTA. Anche il **callback che riceve i chunk dell'upload OTA** verifica le credenziali prima di chiamare `Update.begin()/write()/end()`, quindi un POST non autenticato non può iniziare a scrivere il firmware.
+
+## Fail-safe e recupero sensori
+
+Un singolo sensore guasto non deve fermare l'ESP32.
+
+```text
+fault/read error
+      ↓
+contatore + last_error
+      ↓
+stato non OK
+      ↓
+retry controllato
+      ↓
+firmware Web/MQTT continua
+```
+
+BH1750, BME280 e INA219 tentano nuovamente l'inizializzazione quando il loro stato non è valido.
+
+AS3935, se assente al boot, viene ritentato periodicamente senza riavvio e senza martellare il bus I2C.
+
+### NESA TA-N
+
+MAX31865 viene allocato una sola volta; un init fallito lascia l'interfaccia non inizializzata e viene ritentato ai cicli successivi senza `new/delete` ripetuti. I fault RTD vengono cancellati sul convertitore e riportati in diagnostica.
+
+### NESA RSG1-N
+
+ADS1115 viene allocato una sola volta. Se non risponde all'avvio viene ritentato. Durante il funzionamento viene verificata la presenza I2C: una disconnessione azzera lo stato rilevato e forza la reinizializzazione al ciclo successivo.
 
 ### SDS011
 
-L'ESP32 non entra in deep sleep. Solo SDS011 viene gestito a stati:
+L'ESP32 non entra in deep sleep. Solo SDS011 usa la macchina a stati:
 
 ```text
 sleep → wake → warm-up → sampling → media → publish → sleep
 ```
 
-### NESA TA-N
+## I2C diagnostics
 
-Un fault MAX31865 viene registrato, cancellato sul convertitore e riportato in diagnostica senza riavviare l'ESP32.
-
-### NESA RSG1-N
-
-Un ADS1115 non disponibile o un valore di radiazione implausibile rende non valido solo il relativo sensore.
+Lo scan I2C riconosce BH1750, BME280, INA219, ADS1115/RSG1-N e AS3935. L'indirizzo `0x00` dell'AS3935 non viene interrogato dallo scanner perché è l'indirizzo I2C general-call; se configurato viene indicato esplicitamente nella diagnostica senza effettuare una scansione attiva su `0x00`.
 
 ## Factory reset
 
@@ -213,14 +173,6 @@ sensorhub_nesa
 
 Al riavvio vengono ricreati i default, incluse le credenziali Web `admin/admin`.
 
-## Controlli consigliati dopo un aggiornamento
+## Controlli consigliati dopo il flash
 
-Dopo un OTA o una variazione importante della configurazione verificare:
-
-- firmware e schema configurazione in Diagnostica;
-- heap libero/minimo/largest block;
-- scansione I2C;
-- stato MQTT e contatori;
-- pin map;
-- Health dei sensori abilitati;
-- SDS011 che ritorni regolarmente allo stato `sleeping`.
+Verificare firmware/schema, heap libero/minimo/largest block, scan I2C, contatori MQTT, pin map, Health dei sensori, ciclo SDS011 e capacità di recupero dei sensori scollegati/ricollegati. La CI garantisce la compilazione, mentre questi controlli richiedono il dispositivo reale.
