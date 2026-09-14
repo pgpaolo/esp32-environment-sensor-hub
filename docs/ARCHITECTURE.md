@@ -33,8 +33,9 @@ Sensori locali
 Responsabilità:
 
 - avvio seriale;
-- caricamento configurazione;
-- migrazione credenziali Web legacy;
+- caricamento configurazione principale;
+- caricamento configurazione NESA;
+- seconda validazione dell'oggetto configurazione completo;
 - rete Wi-Fi/AP manutenzione;
 - avvio sensori;
 - avvio MQTT;
@@ -46,14 +47,14 @@ Responsabilità:
 Gestisce il namespace NVS `sensorhub`:
 
 - load/save;
-- schema `cfgver`;
+- schema logico `cfgver`;
 - validazione;
 - correzione dei parametri non validi;
-- factory reset.
+- factory reset del namespace principale.
 
 ### `NesaConfigStore`
 
-Gestisce il namespace `sensorhub_nesa` e i parametri dei due sensori NESA.
+Gestisce il namespace `sensorhub_nesa` e i parametri dei due sensori NESA. Non usa una chiave schema indipendente: i parametri NESA fanno parte dello stesso schema logico firmware e vengono validati dopo il merge con `sensorhub`.
 
 ### `SensorHub`
 
@@ -63,7 +64,7 @@ Gestisce i sensori standard e lo stato runtime. I sensori disabilitati non vengo
 
 Contiene la logica dedicata a:
 
-- NESA TA-N / PT100 tramite MAX31865;
+- NESA TA-N / PT100 tramite MAX31865, 4 fili;
 - NESA RSG1-N tramite ADS1115.
 
 ### `MqttManager`
@@ -74,6 +75,7 @@ Gestisce:
 - LWT retained;
 - backoff reconnect;
 - payload telemetria;
+- buffer JSON riutilizzato;
 - statistiche connect/disconnect/publish.
 
 ### `WebUi`
@@ -82,7 +84,7 @@ Gestisce WebServer, autenticazione HTTP Basic, API, configurazione, factory rese
 
 ### `WebAssets.h`
 
-Contiene dashboard/configurazione/OTA statiche in `PROGMEM` per ridurre l'uso dell'heap.
+Contiene dashboard/configurazione/OTA statiche in `PROGMEM` per ridurre l'uso e la frammentazione dell'heap.
 
 ## Rete
 
@@ -162,8 +164,8 @@ Le pagine statiche sono in flash/PROGMEM. Il JSON Web viene inviato direttamente
 Build di riferimento v0.7.3:
 
 ```text
-RAM statica  15,6%
-Flash        57,7%
+RAM statica  51.060 / 327.680 byte = 15,6%
+Flash        1.135.421 / 1.966.080 = 57,8%
 ```
 
 La diagnostica runtime aggiunge heap libero, min heap, largest free block e frammentazione indicativa.
