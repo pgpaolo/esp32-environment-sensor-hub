@@ -2,9 +2,12 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <SPI.h>
 #include <Adafruit_BME280.h>
 #include <BH1750.h>
 #include <Adafruit_INA219.h>
+#include <Adafruit_MAX31865.h>
+#include <Adafruit_ADS1X15.h>
 #include <DHT.h>
 #include <SdsDustSensor.h>
 #include <SparkFun_AS3935.h>
@@ -34,6 +37,8 @@ class SensorHub {
   BH1750 _bh1750;
   Adafruit_BME280 _bme;
   Adafruit_INA219 *_ina = nullptr;
+  Adafruit_MAX31865 *_nesaTa = nullptr;
+  Adafruit_ADS1115 *_nesaRsg1 = nullptr;
   DHT *_dht = nullptr;
   uint32_t _dhtReadyAtMs = 0;
 
@@ -62,6 +67,8 @@ class SensorHub {
   void beginBme();
   void beginDht();
   void beginIna();
+  void beginNesaTa();
+  void beginNesaRsg1();
   void beginSds();
   void beginAs3935();
   void tickSds();
@@ -69,6 +76,8 @@ class SensorHub {
   void sampleDht();
   void sampleUv();
   void sampleIna();
+  void sampleNesaTa();
+  void sampleNesaRsg1();
   void startSdsCycle();
   void finishSdsCycle(bool success, const String &error = "");
   void scheduleNextSds(uint32_t fromMs);
