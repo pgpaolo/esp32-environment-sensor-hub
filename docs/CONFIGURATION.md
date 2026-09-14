@@ -27,7 +27,7 @@ password: admin
 
 Le password salvate non vengono precompilate nei campi Web. Un campo password lasciato vuoto mantiene il valore precedente.
 
-## NVS
+## NVS e versioning
 
 Namespace:
 
@@ -36,10 +36,18 @@ sensorhub
 sensorhub_nesa
 ```
 
-Schema corrente:
+Schema logico corrente:
 
 ```text
 cfgver = 1
+```
+
+La chiave `cfgver` è memorizzata nel namespace principale `sensorhub`. `sensorhub_nesa` contiene i parametri NESA, ma viene caricato nello stesso oggetto `AppConfig` e sottoposto alla validazione finale insieme al resto della configurazione.
+
+Sequenza di avvio:
+
+```text
+load sensorhub → validate/migrate → load sensorhub_nesa → validate completo → save correzioni
 ```
 
 Le chiavi mancanti usano i default firmware. Valori non validi vengono corretti singolarmente dalla validazione.
@@ -78,7 +86,7 @@ Opzioni:
 - campo vuoto → mantiene quella salvata;
 - ripristino Web → torna a `admin/admin`.
 
-La cifratura NVS non è abilitata.
+La cifratura NVS non è abilitata per scelta progettuale.
 
 ## MQTT
 
@@ -157,6 +165,8 @@ Indirizzi accettati: `0x76`, `0x77`.
 | Offset temperatura | `0 °C` |
 | Offset umidità | `0 %` |
 
+Il DHT11 richiede un GPIO bidirezionale/output-capable; GPIO34..39 non sono validi per questa funzione.
+
 ## INA219
 
 | Parametro | Default |
@@ -230,7 +240,7 @@ Default:
 
 Baseline prevista: **PT100 4 fili**.
 
-Il sensore richiede il MAX31865. Il MAX31855 non è compatibile.
+Il sensore richiede il **MAX31865**. Il MAX31855 non è compatibile perché è destinato alle termocoppie. Breakout Adafruit-compatible/DollaTek equivalenti vanno bene se configurati per PT100 e RREF circa 430 ohm.
 
 ## NESA RSG1-N / ADS1115
 
@@ -271,13 +281,14 @@ Il factory reset cancella entrambi i namespace NVS. Al riavvio tornano i default
 La validazione protegge almeno da:
 
 - porta MQTT 0;
-- intervalli fuori range;
+- reconnect/intervalli fuori range;
 - SDA = SCL;
 - RX SDS = TX SDS;
 - GPIO6..11;
-- GPIO34..39 usati come output;
+- GPIO34..39 usati come output/pull-up;
 - UV fuori ADC1;
 - indirizzi I2C fuori range noto;
+- collisione INA219/ADS1115 sullo stesso indirizzo quando entrambi attivi;
 - parametri SDS011/AS3935/NESA fuori range;
 - credenziali Web vuote o eccessivamente lunghe.
 
