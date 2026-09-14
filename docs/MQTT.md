@@ -1,5 +1,7 @@
 # MQTT schema e diagnostica
 
+Riferimento MQTT di ESP32 Environment Sensor Hub **v0.7.3**.
+
 Base topic predefinito:
 
 ```text
@@ -55,19 +57,19 @@ sds011
 as3935
 ```
 
-Ogni blocco sensore include `enabled` e `ok`; i valori vengono pubblicati quando disponibili/validi.
+Ogni blocco sensore include `enabled` e `ok`; i valori vengono pubblicati quando disponibili/validi. Il blocco `system.mqtt` include una sintesi delle statistiche del client.
 
 ## Reconnect e backoff
 
 Il parametro base `mqttReconnectSec` è 5 s per default e viene validato fra 1 e 300 s.
 
-Dopo fallimenti consecutivi il firmware applica:
+Con il valore di default, dopo fallimenti consecutivi il firmware applica:
 
 ```text
 5 → 10 → 20 → 40 → 60 s
 ```
 
-Il backoff torna al valore base alla prima connessione riuscita. Fra i tentativi il loop continua a gestire Web UI e sensori.
+Con un valore base diverso la progressione parte da quel valore, raddoppia e viene limitata a 60 s. Il backoff torna al valore base alla prima connessione riuscita. Fra i tentativi il loop continua a gestire Web UI e sensori.
 
 ## Statistiche MQTT
 
@@ -84,7 +86,9 @@ La diagnostica mantiene:
 - `last_disconnect_epoch`;
 - `last_publish_epoch`.
 
-Sono disponibili in **Diagnostica**, `/api/status` e in parte nel blocco `system.mqtt` della telemetria.
+Sono disponibili in **Diagnostica**, `/api/status` e, per i campi principali, nel blocco `system.mqtt` della telemetria.
+
+`publish_failed` comprende anche una richiesta di pubblicazione che non può partire perché il client non è connesso al broker: è quindi un contatore operativo delle pubblicazioni non completate, non soltanto degli errori restituiti da `publish()`.
 
 ## Gestione memoria MQTT
 
@@ -96,9 +100,9 @@ PubSubClient usa:
 
 Il payload corrente rientra nel buffer.
 
-Per ridurre la frammentazione dell'heap, `MqttManager` non costruisce più una nuova `String` multi-kilobyte ad ogni pubblicazione: mantiene un buffer membro riutilizzato fra i cicli e riservato inizialmente a 3072 byte. Ad ogni publish viene azzerata la lunghezza logica, mantenendo la capacità allocata quando possibile.
+Per ridurre la frammentazione dell'heap, `MqttManager` mantiene un buffer `String` membro riutilizzato fra i cicli e riservato inizialmente a 3072 byte. Prima di ogni telemetria viene azzerata la lunghezza logica, mantenendo la capacità allocata quando possibile.
 
-Questo intervento è complementare alla Web UI in PROGMEM e alla diagnostica `free_heap/min_free_heap/largest_free_block`.
+Questo intervento è complementare alla Web UI in PROGMEM e alla diagnostica `free_heap`, `min_free_heap`, `largest_free_block` e frammentazione indicativa.
 
 ## TLS
 
@@ -112,13 +116,28 @@ Il testo della CA già salvata non viene reinviato al browser. Può essere sosti
 
 ## Credenziali
 
-Utente e password MQTT vengono memorizzati in NVS **senza cifratura**, per scelta progettuale. La password non viene restituita da `/api/config` e il campo Web è sempre vuoto.
+Utente e password MQTT vengono memorizzati in NVS **senza cifratura**, per scelta progettuale. La password non viene restituita da `/api/config` e il campo Web resta vuoto.
 
 ```text
 campo vuoto  → mantiene la password salvata
 nuovo testo  → sostituisce la password
 Cancella     → rimuove la password
 ```
+
+## Diagnostica consigliata
+
+In caso di problemi verificare insieme:
+
+```text
+MQTT state
+connect attempts / success
+disconnects
+publish OK / failed
+backoff corrente
+RSSI Wi-Fi
+```
+
+Un numero crescente di `connect_attempts` senza `connect_success` indica un problema di raggiungibilità, autenticazione o configurazione broker. Un numero crescente di `disconnects` dopo connessioni riuscite suggerisce invece instabilità di rete/broker.
 
 ## Codici PubSubClient utili
 
