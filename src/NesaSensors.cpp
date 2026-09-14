@@ -4,30 +4,24 @@
 void SensorHub::beginNesaSensors() {
   beginNesaTa();
   beginNesaRsg1();
-  // Sample only the interfaces that initialized successfully. Failed
-  // interfaces are retried by sampleNesaSensors() on the next sensor cycle.
   sampleNesaTa();
   sampleNesaRsg1();
 }
 
 void SensorHub::beginNesaTa() {
   if (!_cfg || !_data || !_cfg->nesaTaEnabled) {
+    _nesaTaInitialized = false;
     if (_data) _data->nesaTaOk = false;
     return;
   }
 
-  if (_nesaTa) {
-    delete _nesaTa;
-    _nesaTa = nullptr;
-  }
+  if (!_nesaTa) _nesaTa = new Adafruit_MAX31865(_cfg->nesaTaCsPin, &SPI);
 
-  _nesaTa = new Adafruit_MAX31865(_cfg->nesaTaCsPin, &SPI);
-  if (!_nesaTa->begin(MAX31865_4WIRE)) {
+  _nesaTaInitialized = _nesaTa->begin(MAX31865_4WIRE);
+  if (!_nesaTaInitialized) {
     _data->nesaTaOk = false;
     _data->nesaTaFailures++;
     _data->nesaTaLastError = "max31865_init_failed";
-    delete _nesaTa;
-    _nesaTa = nullptr;  // Allow a clean retry on the next sensor cycle.
     return;
   }
 
@@ -36,7 +30,7 @@ void SensorHub::beginNesaTa() {
 }
 
 void SensorHub::sampleNesaTa() {
-  if (!_cfg || !_data || !_cfg->nesaTaEnabled || !_nesaTa) {
+  if (!_cfg || !_data || !_cfg->nesaTaEnabled || !_nesaTa || !_nesaTaInitialized) {
     if (_data) _data->nesaTaOk = false;
     return;
   }
@@ -74,23 +68,19 @@ void SensorHub::sampleNesaTa() {
 
 void SensorHub::beginNesaRsg1() {
   if (!_cfg || !_data || !_cfg->nesaRsg1Enabled) {
+    _nesaRsg1Initialized = false;
     if (_data) _data->nesaRsg1Ok = false;
     return;
   }
 
-  if (_nesaRsg1) {
-    delete _nesaRsg1;
-    _nesaRsg1 = nullptr;
-  }
+  if (!_nesaRsg1) _nesaRsg1 = new Adafruit_ADS1115();
 
-  _nesaRsg1 = new Adafruit_ADS1115();
-  if (!_nesaRsg1->begin(_cfg->nesaRsg1AdsAddress, &Wire)) {
+  _nesaRsg1Initialized = _nesaRsg1->begin(_cfg->nesaRsg1AdsAddress, &Wire);
+  if (!_nesaRsg1Initialized) {
     _data->nesaRsg1Ok = false;
     _data->nesaRsg1DetectedAddress = 0xFF;
     _data->nesaRsg1Failures++;
     _data->nesaRsg1LastError = "ads1115_not_found";
-    delete _nesaRsg1;
-    _nesaRsg1 = nullptr;  // Allow hot-plug/recovery without rebooting the ESP32.
     return;
   }
 
@@ -102,7 +92,7 @@ void SensorHub::beginNesaRsg1() {
 }
 
 void SensorHub::sampleNesaRsg1() {
-  if (!_cfg || !_data || !_cfg->nesaRsg1Enabled || !_nesaRsg1) {
+  if (!_cfg || !_data || !_cfg->nesaRsg1Enabled || !_nesaRsg1 || !_nesaRsg1Initialized) {
     if (_data) _data->nesaRsg1Ok = false;
     return;
   }
@@ -141,8 +131,8 @@ void SensorHub::sampleNesaRsg1() {
 }
 
 void SensorHub::sampleNesaSensors() {
-  if (_cfg && _cfg->nesaTaEnabled && !_nesaTa) beginNesaTa();
-  if (_cfg && _cfg->nesaRsg1Enabled && !_nesaRsg1) beginNesaRsg1();
+  if (_cfg && _cfg->nesaTaEnabled && !_nesaTaInitialized) beginNesaTa();
+  if (_cfg && _cfg->nesaRsg1Enabled && !_nesaRsg1Initialized) beginNesaRsg1();
   sampleNesaTa();
   sampleNesaRsg1();
 }
