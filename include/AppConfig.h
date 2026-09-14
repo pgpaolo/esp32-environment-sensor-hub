@@ -79,6 +79,19 @@ struct AppConfig {
   float inaBusVoltageOffsetV = 0.0f;
   float inaCurrentOffsetMa = 0.0f;
 
+  bool nesaTaEnabled = false;
+  uint8_t nesaTaCsPin = 13;
+  float nesaTaRtdNominalOhm = 100.0f;
+  float nesaTaRefResistorOhm = 430.0f;
+  float nesaTaTemperatureOffsetC = 0.0f;
+
+  bool nesaRsg1Enabled = false;
+  uint8_t nesaRsg1AdsAddress = 0x48;
+  float nesaRsg1SensitivityUvPerWm2 = 10.0f;
+  float nesaRsg1OffsetUv = 0.0f;
+  float nesaRsg1MaxWm2 = 2000.0f;
+  bool nesaRsg1ClampNegative = true;
+
   bool sdsEnabled = true;
   uint8_t sdsRxPin = 16;
   uint8_t sdsTxPin = 17;
