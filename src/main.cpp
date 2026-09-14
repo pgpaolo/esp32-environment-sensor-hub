@@ -114,6 +114,7 @@ void setup() {
 
   startNetwork();
   sensors.begin(cfg, data);
+  sensors.beginNesaSensors();
   mqtt.begin(cfg, data);
 
   web = new WebUi(cfg, data, store, mqtt, sensors);
@@ -139,6 +140,7 @@ void loop() {
   if ((uint32_t)(now - lastSensorReadMs) >= sensorPeriodMs) {
     lastSensorReadMs = now;
     sensors.sampleSlowSensors();
+    sensors.sampleNesaSensors();
   }
 
   if ((uint32_t)(now - lastTelemetryMs) >= telemetryPeriodMs) {
@@ -148,6 +150,7 @@ void loop() {
 
   if (sensors.takeImmediatePublishFlag()) {
     sensors.sampleSlowSensors();
+    sensors.sampleNesaSensors();
     mqtt.publishTelemetry("sensor_event");
   }
 
