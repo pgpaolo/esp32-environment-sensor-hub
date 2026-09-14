@@ -6,10 +6,10 @@ Firmware PlatformIO/Arduino per un nodo ambientale ESP32 dedicato a sensori loca
 
 Versione firmware corrente: **v0.7.3**.
 
-La build `esp32dev` è verificata da GitHub Actions. L'ultima build funzionale della v0.7.3 ha riportato:
+La build `esp32dev` è verificata da GitHub Actions. Dopo il controllo generale del codice la build di riferimento è:
 
-- RAM statica: **51.036 byte / 327.680 byte (15,6%)**;
-- flash applicativa: **1.134.213 byte / 1.966.080 byte (57,7%)**;
+- RAM statica: **51.060 byte / 327.680 byte (15,6%)**;
+- flash applicativa: **1.135.421 byte / 1.966.080 byte (57,8%)**;
 - risultato: **SUCCESS**.
 
 ## Sensori supportati
@@ -26,15 +26,13 @@ La build `esp32dev` è verificata da GitHub Actions. L'ultima build funzionale d
 | NESA TA-N / PT100 | MAX31865 + SPI | disabilitato |
 | NESA RSG1-N | ADS1115 + I2C | disabilitato |
 
-Il firmware include inoltre relay, configurazione persistente NVS, Web UI compatta, diagnostica, MQTT JSON, scansione I2C e aggiornamento OTA da browser.
+Il firmware include relay, configurazione persistente NVS, Web UI compatta, diagnostica, MQTT JSON, scansione I2C e aggiornamento OTA da browser.
 
 ## NESA: hardware previsto
 
 ### TA-N
 
 Il NESA TA-N previsto dal progetto è una **PT100 a 4 fili** e richiede il front-end **MAX31865**. Il MAX31865 non viene bypassato: misura la RTD, gestisce il collegamento a 4 fili e fornisce la conversione digitale via SPI.
-
-Configurazione firmware corrente:
 
 ```text
 RTD nominale : 100 ohm
@@ -46,73 +44,64 @@ SPI MOSI     : GPIO23
 CS           : GPIO13
 ```
 
-Sono adatti breakout MAX31865 per PT100, inclusi moduli Adafruit-compatible/DollaTek equivalenti, purché configurati per **PT100 / RREF ~430 ohm**. Un MAX31855 per termocoppie K **non è compatibile** con questo sensore.
+Sono adatti breakout MAX31865 per PT100, inclusi moduli Adafruit-compatible/DollaTek equivalenti, purché configurati per **PT100 / RREF ~430 ohm**. Un MAX31855 per termocoppie K **non è compatibile**.
 
 ### RSG1-N
 
 Il NESA RSG1-N viene acquisito con ADS1115 in differenziale `A0-A1`, gain `±0,256 V`, indirizzo default `0x48`. La sensibilità deve essere impostata secondo il certificato di taratura del singolo piranometro.
 
+Entrambe le interfacce NESA tentano il recupero automatico dopo un errore di inizializzazione senza richiedere il riavvio dell'ESP32. L'ADS1115 viene inoltre controllato durante il funzionamento: una disconnessione viene rilevata e il driver viene reinizializzato al ciclo successivo.
+
 Vedere [`docs/NESA.md`](docs/NESA.md).
 
-## Novità v0.7.3
+## Robustezza v0.7.3
 
-La v0.7.3 introduce una revisione dedicata alla robustezza:
+La v0.7.3 include una revisione completa di memoria, configurazione, MQTT e fail-safe:
 
-- pagine Web statiche in `PROGMEM` (`src/WebAssets.h`), senza grandi concatenazioni `String` per dashboard/configurazione;
+- pagine Web statiche in `PROGMEM` (`src/WebAssets.h`);
 - JSON Web serializzato direttamente sul client HTTP;
-- diagnostica memoria con heap libero, minimo heap libero, largest free block e frammentazione indicativa;
-- schema NVS versionato (`cfgver`) con migrazione automatica;
-- validazione dei principali parametri prima dell'uso e del salvataggio;
-- statistiche MQTT separate per connect, disconnect e publish;
-- reconnect MQTT con backoff progressivo fino a 60 secondi;
-- password Wi-Fi, MQTT e Web mai restituite dalla Web UI;
-- campo password vuoto = mantiene il valore salvato;
-- pulsante **PIN** per ogni sensore e mappa pin completa in Diagnostica;
-- abilitazione/disabilitazione individuale dei sensori dalla configurazione;
-- AP di manutenzione fisso su `192.168.4.1`;
-- autenticazione Web factory `admin / admin`.
+- diagnostica heap: libero, minimo, largest free block e frammentazione indicativa;
+- buffer JSON MQTT riutilizzato fra le pubblicazioni per ridurre churn/frammentazione heap;
+- schema NVS versionato (`cfgver = 1`) e validazione dopo il caricamento congiunto dei namespace principale e NESA;
+- validazione di GPIO, enum, offset, indirizzi I2C, intervalli e collisione INA219/ADS1115;
+- MQTT con LWT retained, statistiche separate e backoff fino a 60 s;
+- password Wi-Fi/MQTT/Web e CA MQTT mai restituite dalla Web UI;
+- OTA protetto da autenticazione anche durante il callback di upload, prima della scrittura dei chunk firmware;
+- recupero automatico di BH1750/BME280/INA219, NESA e AS3935 senza riavvio generale;
+- pulsante **PIN** per ogni sensore e mappa pin completa;
+- abilitazione/disabilitazione individuale dei sensori;
+- AP manutenzione `192.168.4.1` e autenticazione factory `admin/admin`.
 
 ## Web UI e accesso di manutenzione
 
 La Web UI è protetta da autenticazione HTTP Basic.
-
-Credenziali factory/default:
 
 ```text
 user: admin
 password: admin
 ```
 
-Quando viene avviato l'AP di manutenzione:
+AP manutenzione:
 
 ```text
 http://192.168.4.1/
 ```
 
-L'AP viene avviato quando non è disponibile una configurazione Wi-Fi valida, quando il collegamento STA fallisce oppure mantenendo premuto il pulsante BOOT/config all'avvio. Il factory reset ripristina anche `admin/admin`.
+L'AP viene avviato se manca una configurazione Wi-Fi valida, se il collegamento STA fallisce o mantenendo premuto BOOT/config all'avvio. Il factory reset ripristina anche `admin/admin`.
 
-Le password salvate a runtime restano in NVS **senza cifratura**, per scelta progettuale. Non vengono però reinviate al browser dalla pagina di configurazione.
+Le password restano memorizzate in NVS **senza cifratura**, per scelta progettuale, ma non vengono mai reinviate al browser.
 
-## Abilitazione e disabilitazione sensori
+## Sensori attivi e pin
 
-In **Configurazione → Sensori → Sensori attivi** ogni sensore può essere abilitato o disabilitato singolarmente. La modifica viene applicata con **Salva e riavvia**.
+In **Configurazione → Sensori → Sensori attivi** ogni sensore può essere abilitato/disabilitato singolarmente. Un sensore disabilitato non viene inizializzato, non viene interrogato e non concorre allo stato Health.
 
-Un sensore disabilitato:
-
-- non viene inizializzato;
-- non viene interrogato periodicamente;
-- non concorre allo stato Health;
-- resta identificabile nella dashboard/configurazione come disabilitato.
-
-## Identificazione pin
-
-Ogni card sensore dispone del pulsante **PIN**. Il popup usa la configurazione runtime corrente. In **Diagnostica → Mappa pin** è disponibile anche il riepilogo completo.
+Ogni card dispone del pulsante **PIN**; **Diagnostica → Mappa pin** mostra il riepilogo completo usando i valori runtime correnti.
 
 Vedere [`docs/PINOUT.md`](docs/PINOUT.md).
 
 ## SDS011
 
-L'ESP32 resta sempre acceso. Solo l'SDS011 viene messo in sleep:
+L'ESP32 resta sempre acceso. Solo SDS011 entra in sleep:
 
 ```text
 sleep → wake → warm-up → campioni → media → MQTT/Web → sleep
@@ -122,9 +111,14 @@ Default: ciclo 60 min, warm-up 30 s, 5 campioni, timeout awake 120 s.
 
 ## Configurazione persistente
 
-La configurazione principale usa il namespace NVS `sensorhub`; i parametri NESA usano `sensorhub_nesa`.
+Namespace NVS:
 
-Schema corrente: **1**. Le configurazioni precedenti vengono caricate con i default per le nuove chiavi, validate e migrate automaticamente senza richiedere un factory reset.
+```text
+sensorhub
+sensorhub_nesa
+```
+
+Schema corrente: **1**. Le configurazioni precedenti vengono caricate con i default per le nuove chiavi, validate e migrate automaticamente. Dopo il caricamento dei due namespace viene eseguita una seconda validazione dell'insieme completo per intercettare anche conflitti fra configurazione principale e NESA.
 
 ## MQTT
 
@@ -135,7 +129,7 @@ Topic principali:
 <base_topic>/telemetry
 ```
 
-`status` usa LWT retained `online/offline`. Il reconnect adotta backoff progressivo fino a 60 s. La diagnostica espone tentativi, connessioni riuscite, disconnessioni, publish riusciti/falliti, stato PubSubClient e backoff corrente.
+`status` usa LWT retained `online/offline`. Il reconnect usa backoff progressivo fino a 60 s. Il buffer PubSubClient resta 4096 byte; il payload JSON applicativo viene costruito in un buffer `String` riutilizzato fra i cicli per evitare continue allocazioni di qualche KB.
 
 Vedere [`docs/MQTT.md`](docs/MQTT.md).
 
@@ -146,14 +140,14 @@ Vedere [`docs/MQTT.md`](docs/MQTT.md).
 - [`docs/PINOUT.md`](docs/PINOUT.md) — GPIO, bus e indirizzi;
 - [`docs/NESA.md`](docs/NESA.md) — TA-N/MAX31865 e RSG1-N/ADS1115;
 - [`docs/MQTT.md`](docs/MQTT.md) — topic, payload e diagnostica MQTT;
-- [`docs/API.md`](docs/API.md) — endpoint Web/API;
+- [`docs/API.md`](docs/API.md) — endpoint Web/API e OTA;
 - [`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md) — memoria, PROGMEM, versioning e fail-safe;
 - [`docs/VERIFICATION.md`](docs/VERIFICATION.md) — checklist di verifica generale v0.7.3;
 - [`CHANGELOG.md`](CHANGELOG.md) — cronologia delle revisioni principali.
 
 ## Credenziali Wi-Fi locali
 
-Le credenziali factory locali non vengono versionate. Copiare:
+Le credenziali locali non vengono versionate. Copiare:
 
 ```text
 include/DefaultSecrets.example.h
