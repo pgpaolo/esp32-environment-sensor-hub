@@ -6,11 +6,7 @@ La dashboard mostra per entrambi il pulsante **PIN**. La mappa completa è dispo
 
 ## NESA TA-N — PT100 4 fili
 
-### Interfaccia richiesta
-
-Il TA-N previsto da questo progetto è una **RTD PT100 a 4 fili**. Per collegarlo all'ESP32 è necessario un convertitore **MAX31865**.
-
-Catena di acquisizione:
+Il TA-N previsto da questo progetto è una **RTD PT100 a 4 fili** e richiede un convertitore **MAX31865**.
 
 ```text
 NESA TA-N / PT100 4 fili
@@ -20,13 +16,13 @@ NESA TA-N / PT100 4 fili
          ESP32
 ```
 
-Il MAX31865 non è un accessorio opzionale: fornisce l'eccitazione e la misura raziometrica della RTD, gestisce il collegamento a 4 fili, rileva fault e rende disponibile la misura via SPI.
+Il MAX31865 non è opzionale: fornisce eccitazione e misura raziometrica della RTD, gestisce il collegamento 4 fili, rileva fault e rende la misura disponibile via SPI.
 
-Un **MAX31855** non è compatibile: è progettato per termocoppie, ad esempio Tipo K, non per PT100/PT1000.
+Un **MAX31855** non è compatibile: è un convertitore per termocoppie, ad esempio Tipo K, non per PT100/PT1000.
 
 ### Breakout compatibile
 
-È previsto un modulo MAX31865 Adafruit-compatible; è utilizzabile anche un breakout equivalente DollaTek purché sia configurato per:
+È previsto un MAX31865 Adafruit-compatible; va bene anche un equivalente DollaTek se configurato per:
 
 ```text
 RTD  : PT100
@@ -34,7 +30,7 @@ RREF : circa 430 ohm
 modo : 4 fili
 ```
 
-Prima del montaggio verificare il valore della resistenza di riferimento del breakout e la configurazione/jumper prevista dal costruttore per il collegamento a 4 fili.
+Prima del montaggio verificare la resistenza di riferimento e i jumper/bridge previsti dal modulo specifico.
 
 ### Pin ESP32
 
@@ -47,27 +43,29 @@ Prima del montaggio verificare il valore della resistenza di riferimento del bre
 
 Il firmware usa `MAX31865_4WIRE`, RTD nominale `100 ohm` e RREF `430 ohm`.
 
-Il CS è configurabile dalla Web UI; SCK/MISO/MOSI usano il bus SPI hardware standard dell'ESP32.
-
 ### Dati esposti
 
-- temperatura in °C;
-- resistenza RTD in ohm;
+- temperatura °C;
+- resistenza RTD ohm;
 - fault byte MAX31865;
 - contatore errori;
 - ultimo errore;
 - stato Health;
 - pubblicazione MQTT.
 
+### Recupero automatico
+
+L'oggetto MAX31865 viene allocato una sola volta. Se `begin()` fallisce, il sensore viene marcato non valido ma il firmware continua; ai successivi cicli sensori viene ritentata l'inizializzazione sullo stesso oggetto, evitando churn `new/delete` dell'heap.
+
+Un fault RTD durante il funzionamento viene registrato e cancellato dal MAX31865, senza riavviare l'ESP32.
+
 ### Limiti firmware correnti
 
-La baseline v0.7.3 è validata per **PT100** in un intervallo meteorologico. Anche se il MAX31865 può essere impiegato con PT1000, il firmware corrente non va considerato pronto per PT1000 senza adeguare nominale, RREF e controlli di plausibilità.
+La baseline v0.7.3 è validata per **PT100** in intervallo meteorologico. Anche se il MAX31865 supporta PT1000, il firmware corrente non va considerato PT1000-ready senza adeguare nominale, RREF e plausibilità della resistenza.
 
 ## NESA RSG1-N — piranometro a termopila
 
 Interfaccia: **ADS1115 16 bit** sul bus I2C condiviso.
-
-Catena di acquisizione:
 
 ```text
 NESA RSG1-N
@@ -81,36 +79,26 @@ Default:
 
 - SDA `GPIO21`;
 - SCL `GPIO22`;
-- indirizzo ADS1115 `0x48`;
-- ingresso differenziale `A0-A1`;
-- gain `GAIN_SIXTEEN` / fondo scala ±0,256 V;
-- data rate 128 SPS;
+- ADS1115 `0x48`;
+- differenziale `A0-A1`;
+- `GAIN_SIXTEEN` / ±0,256 V;
+- 128 SPS;
 - sensibilità iniziale `10,0 µV/(W/m²)`;
-- fondo scala software `2000 W/m²`.
+- massimo software `2000 W/m²`.
 
-La sensibilità reale deve essere impostata usando il certificato di taratura del singolo RSG1-N. Il firmware mantiene separati raw ADC, millivolt e radiazione in W/m².
+La sensibilità reale deve essere sostituita con quella del certificato di taratura del singolo RSG1-N.
+
+### Recupero automatico
+
+L'ADS1115 viene allocato una sola volta. Se non risponde all'avvio, l'inizializzazione viene ritentata ai cicli successivi. Prima di ogni campionamento viene verificata la presenza all'indirizzo configurato: se il modulo viene scollegato, lo stato passa a non valido, l'indirizzo rilevato torna `0xFF` e il firmware tenterà la reinizializzazione al ciclo seguente.
+
+Questo permette il recupero dopo riconnessione senza reboot del nodo.
 
 ## Configurazione Web
 
-Per entrambi i sensori sono disponibili:
-
-- abilitazione/disabilitazione;
-- parametri di taratura;
-- stato operativo in dashboard;
-- contatore errori in diagnostica;
-- pulsante **PIN**;
-- pubblicazione MQTT quando abilitati.
+Per entrambi i sensori sono disponibili abilitazione/disabilitazione, parametri di taratura, stato dashboard, contatore errori, pulsante **PIN** e pubblicazione MQTT.
 
 ### TA-N
-
-Parametri configurabili:
-
-- CS MAX31865;
-- RTD nominale;
-- RREF;
-- offset temperatura.
-
-Default raccomandati per la baseline:
 
 ```text
 CS           = GPIO13
@@ -126,17 +114,19 @@ Parametri configurabili:
 - indirizzo ADS1115;
 - sensibilità µV/(W/m²);
 - offset µV;
-- valore massimo W/m²;
-- clamp dei valori negativi.
+- massimo W/m²;
+- clamp valori negativi.
+
+Il range ADS1115 ammesso è `0x48..0x4B`. Se INA219 e ADS1115 sono entrambi abilitati, la validazione impedisce che usino lo stesso indirizzo I2C.
 
 ## Fail-safe
 
-Un fault MAX31865 o un errore ADS1115 marca esclusivamente il relativo sensore come non valido: il firmware non richiede il riavvio dell'ESP32.
+Un fault MAX31865 o un errore/disconnessione ADS1115 marca esclusivamente il relativo sensore come non valido. L'ESP32, Web UI, MQTT e gli altri sensori continuano a funzionare.
 
-Un sensore NESA disabilitato non viene inizializzato, non viene campionato e non concorre al conteggio Health.
+Un sensore NESA disabilitato non viene inizializzato né campionato e non concorre al conteggio Health.
 
 ## Diagnostica
 
-Per il TA-N vengono riportati fault MAX31865, temperatura, resistenza e contatore errori. Per il RSG1-N vengono riportati indirizzo ADS1115 rilevato, raw ADC, tensione, radiazione e contatore errori.
+Per TA-N vengono riportati fault, temperatura, resistenza e contatore errori. Per RSG1-N vengono riportati indirizzo ADS1115 rilevato, raw ADC, tensione, radiazione e contatore errori.
 
-In caso di problemi verificare prima **Diagnostica → Mappa pin** e, per il RSG1-N, anche la scansione I2C.
+Lo scan I2C riconosce l'ADS1115/RSG1-N all'indirizzo configurato.
