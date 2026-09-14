@@ -1,15 +1,15 @@
 # ESP32 Environment Sensor Hub
 
-Firmware PlatformIO/Arduino per un nodo ambientale ESP32 dedicato a sensori locali, Web UI, MQTT, diagnostica e OTA. La parte RF Oregon/Technoline **non** è inclusa in questo progetto e resta gestita dal gateway dedicato.
+Firmware PlatformIO/Arduino per un nodo ambientale ESP32 dedicato a sensori locali, Web UI, MQTT, diagnostica, OTA e accesso amministrativo remoto opzionale tramite AdminSensor. La parte RF Oregon/Technoline **non** è inclusa in questo progetto e resta gestita dal gateway dedicato.
 
 ## Stato del progetto
 
 Versione firmware corrente: **v0.7.3**.
 
-Controllo generale completato sul branch `main`: build PlatformIO `esp32dev` **SUCCESS** sull'HEAD verificato.
+Baseline `develop` verificata: commit `49b2b7336ecea85783f915dcf8de38e5380045af` (`feat: add AdminSensor Remote and harden OTA`). La GitHub Action `PlatformIO Build` è **SUCCESS** sull'HEAD analizzato.
 
-- RAM statica: **51.060 / 327.680 byte (15,6%)**;
-- flash applicativa: **1.135.421 / 1.966.080 byte (57,8%)**.
+- RAM statica: **52.524 / 327.680 byte (16,0%)**;
+- flash applicativa: **1.210.381 / 1.966.080 byte (61,6%)**.
 
 La CI compila automaticamente il progetto ad ogni push.
 
@@ -55,9 +55,9 @@ Entrambe le interfacce NESA tentano il recupero automatico dopo un errore di ini
 
 Vedere [`docs/NESA.md`](docs/NESA.md) e [`docs/SENSORI.md`](docs/SENSORI.md).
 
-## Robustezza v0.7.3
+## Robustezza e memoria
 
-La v0.7.3 include una revisione completa di memoria, configurazione, MQTT e fail-safe:
+La baseline corrente include una revisione completa di memoria, configurazione, MQTT e fail-safe:
 
 - pagine Web statiche in `PROGMEM` (`src/WebAssets.h`);
 - JSON Web serializzato direttamente sul client HTTP;
@@ -71,7 +71,10 @@ La v0.7.3 include una revisione completa di memoria, configurazione, MQTT e fail
 - recupero automatico di BH1750/BME280/INA219, NESA e AS3935 senza riavvio generale;
 - pulsante **PIN** per ogni sensore e mappa pin completa;
 - abilitazione/disabilitazione individuale dei sensori;
-- AP manutenzione `192.168.4.1` e autenticazione factory `admin/admin`.
+- AP manutenzione `192.168.4.1` e autenticazione factory `admin/admin`;
+- AdminSensor Remote isolato in un task FreeRTOS dedicato, con enrollment HTTPS e trasporto WSS autenticato.
+
+I dati statici di build non includono tutte le allocazioni dinamiche runtime. Con AdminSensor attivo è quindi importante osservare anche `free_heap`, `min_free_heap` e `largest_free_block` dalla diagnostica.
 
 ## Web UI e accesso di manutenzione
 
@@ -88,9 +91,42 @@ AP manutenzione:
 http://192.168.4.1/
 ```
 
-L'AP viene avviato se manca una configurazione Wi-Fi valida, se il collegamento STA fallisce o mantenendo premuto BOOT/config all'avvio. Il factory reset ripristina anche `admin/admin`.
+L'AP viene avviato se manca una configurazione Wi-Fi valida, se il collegamento STA iniziale fallisce o mantenendo premuto BOOT/config all'avvio. Il factory reset ripristina anche `admin/admin` per la configurazione applicativa principale.
 
-Le password restano memorizzate in NVS **senza cifratura**, per scelta progettuale, ma non vengono mai reinviate al browser.
+Le password restano memorizzate in NVS **senza cifratura applicativa**, per scelta progettuale, ma non vengono mai reinviate al browser.
+
+## AdminSensor Remote
+
+AdminSensor Remote è opzionale. L'installatore configura soltanto la base URL **HTTPS** del portale; identità e token del dispositivo sono generati e gestiti dal firmware.
+
+Flusso logico:
+
+```text
+Wi-Fi + NTP
+   ↓
+HTTPS enrollment
+   ↓
+pending / approved
+   ↓
+WSS autenticato con Bearer token
+   ↓
+proxy verso la Web UI locale autenticata
+```
+
+Caratteristiche principali:
+
+- `device_id` stabile derivato dal MAC;
+- token casuale a 256 bit salvato nel namespace NVS `remote`;
+- token non restituito dalle API;
+- enrollment con approvazione lato portale;
+- reconnect automatico WSS con heartbeat;
+- richieste remote limitate a `GET`, `POST` e `HEAD` e a path locali relativi;
+- limiti dimensionali su richiesta, risposta e messaggio WebSocket;
+- trust store compilato nel firmware (`src/remote_trust.h`) con ISRG Root X1/X2.
+
+La configurabilità della URL non implica fiducia verso qualsiasi CA: il certificato del portale deve avere una catena compatibile con i trust anchor inclusi nel firmware.
+
+Vedere [`docs/ANALISI_FUNZIONALE_TECNICA.md`](docs/ANALISI_FUNZIONALE_TECNICA.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) e [`docs/API.md`](docs/API.md).
 
 ## Sensori attivi e pin
 
@@ -112,14 +148,17 @@ Default: ciclo 60 min, warm-up 30 s, 5 campioni, timeout awake 120 s.
 
 ## Configurazione persistente
 
-Namespace NVS:
+Namespace NVS principali:
 
 ```text
 sensorhub
 sensorhub_nesa
+remote
 ```
 
-Lo schema logico corrente è **1**. La chiave `cfgver` è salvata nel namespace principale `sensorhub`; dopo il caricamento dei parametri NESA viene eseguita una seconda validazione dell'oggetto completo e le eventuali correzioni vengono persistite nei rispettivi namespace.
+Lo schema logico corrente della configurazione applicativa è **1**. La chiave `cfgver` è salvata nel namespace principale `sensorhub`; dopo il caricamento dei parametri NESA viene eseguita una seconda validazione dell'oggetto completo e le eventuali correzioni vengono persistite nei rispettivi namespace.
+
+Il namespace `remote` contiene la configurazione AdminSensor separata e il token per-device.
 
 ## MQTT
 
@@ -136,15 +175,16 @@ Vedere [`docs/MQTT.md`](docs/MQTT.md).
 
 ## Documentazione
 
+- [`docs/ANALISI_FUNZIONALE_TECNICA.md`](docs/ANALISI_FUNZIONALE_TECNICA.md) — requisiti funzionali e tecnici, flussi, concorrenza, sicurezza, failure mode e collaudo;
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architettura e flusso dati;
 - [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — configurazione, default, validazione e NVS;
 - [`docs/PINOUT.md`](docs/PINOUT.md) — GPIO, bus e indirizzi;
 - [`docs/SENSORI.md`](docs/SENSORI.md) — caratteristiche tecniche di tutti i sensori, con approfondimento NESA;
 - [`docs/NESA.md`](docs/NESA.md) — TA-N/MAX31865 e RSG1-N/ADS1115;
 - [`docs/MQTT.md`](docs/MQTT.md) — topic, payload e diagnostica MQTT;
-- [`docs/API.md`](docs/API.md) — endpoint Web/API e OTA;
+- [`docs/API.md`](docs/API.md) — endpoint Web/API, AdminSensor e OTA;
 - [`docs/ROBUSTNESS.md`](docs/ROBUSTNESS.md) — memoria, PROGMEM, versioning e fail-safe;
-- [`docs/VERIFICATION.md`](docs/VERIFICATION.md) — checklist del controllo generale v0.7.3;
+- [`docs/VERIFICATION.md`](docs/VERIFICATION.md) — checklist del controllo generale sul branch `develop`;
 - [`CHANGELOG.md`](CHANGELOG.md) — cronologia delle revisioni principali.
 
 ## Credenziali Wi-Fi locali

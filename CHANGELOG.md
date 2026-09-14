@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased — develop
+
+### AdminSensor Remote
+
+- aggiunto accesso amministrativo remoto opzionale tramite base URL HTTPS configurabile;
+- `device_id` stabile derivato dal MAC e token per-device casuale a 256 bit gestito dal firmware;
+- nuovo namespace NVS `remote` per URL portale e token;
+- enrollment HTTPS con stati pending/approved e approvazione lato portale;
+- trasporto WSS autenticato con Bearer token, heartbeat e reconnect;
+- task FreeRTOS dedicato `adminsensor`;
+- proxy verso la Web UI locale autenticata, limitato a GET/POST/HEAD;
+- limiti dimensionali su request, response e frame applicativi;
+- trust store dedicato in `src/remote_trust.h` con ISRG Root X1/X2;
+- diagnostica AdminSensor integrata in dashboard e `/api/status`;
+- API `/api/remote/config`, `/api/remote/status`, `/api/remote/retry`, `/api/remote/reset`;
+- token remoto non restituito dalle API.
+
+### OTA / sicurezza
+
+- hardening dell'upload OTA: autenticazione verificata anche nel callback dei chunk prima di `Update.begin()`, `Update.write()` e `Update.end()`.
+
+### Documentazione
+
+- aggiunto `docs/ANALISI_FUNZIONALE_TECNICA.md` con requisiti funzionali/tecnici, architettura, concorrenza, persistenza, security boundary, failure mode e piano di collaudo;
+- aggiornati README, architettura, API e verifica generale per includere AdminSensor Remote;
+- documentati i principali candidati di hardening emersi dal controllo: NTP dopo reconnect Wi-Fi ritardato, semantica factory reset, MQTT TLS insecure di default e SoftAP non cifrato a livello Wi-Fi.
+
+### Build verificata
+
+Baseline `develop` verificata: `49b2b7336ecea85783f915dcf8de38e5380045af`.
+
+```text
+RAM   16,0% — 52.524 / 327.680 byte
+Flash 61,6% — 1.210.381 / 1.966.080 byte
+```
+
+GitHub Actions `PlatformIO Build`: **SUCCESS**.
+
 ## v0.7.3
 
 Revisione robustezza, configurazione, diagnostica e manutenzione.
@@ -54,14 +92,14 @@ Revisione robustezza, configurazione, diagnostica e manutenzione.
 - chiarito che MAX31855 non è compatibile con la RTD PT100;
 - RSG1-N tramite ADS1115 differenziale A0-A1.
 
-### Build verificata
+### Build di riferimento precedente all'integrazione AdminSensor
 
 ```text
 RAM   15,6% — 51.060 / 327.680 byte
 Flash 57,8% — 1.135.421 / 1.966.080 byte
 ```
 
-GitHub Actions `PlatformIO Build`: **SUCCESS** sull'HEAD verificato.
+GitHub Actions `PlatformIO Build`: **SUCCESS** sull'HEAD allora verificato.
 
 ## v0.7.2
 

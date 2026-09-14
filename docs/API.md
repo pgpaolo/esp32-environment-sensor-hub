@@ -2,7 +2,7 @@
 
 ESP32 Environment Sensor Hub **v0.7.3** espone Web UI e API sulla porta TCP 80.
 
-Tutti gli endpoint applicativi, inclusi i callback di upload OTA, sono protetti dalla stessa autenticazione HTTP Basic.
+Tutti gli endpoint applicativi, inclusi i callback di upload OTA e le API AdminSensor Remote, sono protetti dalla stessa autenticazione HTTP Basic.
 
 Credenziali factory:
 
@@ -26,6 +26,7 @@ Le pagine statiche principali sono memorizzate in PROGMEM in `src/WebAssets.h` e
 Restituisce lo stato runtime. Sezioni principali:
 
 - `system`: Wi-Fi, IP, RSSI, heap, flash, firmware, reset reason, config schema;
+- `remote`: stato AdminSensor Remote;
 - `mqtt`: stato, tentativi, successi, disconnessioni, publish, timestamp e backoff;
 - `pins`: GPIO configurati/effettivi;
 - `relay` e tutti i blocchi sensore.
@@ -45,6 +46,13 @@ Esempio parziale:
     "heap_fragmentation_pct": 38.8,
     "firmware": "0.7.3",
     "config_schema": 1
+  },
+  "remote": {
+    "configured": true,
+    "approved": true,
+    "transport_active": true,
+    "state": "ONLINE",
+    "device_id": "esp32-aabbccddeeff"
   },
   "mqtt": {
     "connected": true,
@@ -96,6 +104,117 @@ Richiede una misura SDS011 fuori ciclo. Risponde `200` se accettata, `409` se lo
 
 Forza SDS011 allo stato sleep. Risponde `200` in caso di successo, `409` se non applicabile.
 
+## AdminSensor Remote
+
+AdminSensor Remote è configurabile e diagnosticabile tramite API locali. Il **device token non viene mai restituito**.
+
+### GET `/api/remote/config`
+
+Restituisce la configurazione non sensibile, ad esempio:
+
+```json
+{
+  "portal_url": "https://admin.example.net",
+  "device_id": "esp32-aabbccddeeff",
+  "has_token": true,
+  "identity_managed_by_firmware": true
+}
+```
+
+Campi:
+
+- `portal_url`: base URL del portale;
+- `device_id`: identità stabile derivata dal MAC;
+- `has_token`: indica soltanto se è presente un token valido;
+- `identity_managed_by_firmware`: conferma che identità/token non sono editabili dall'installatore.
+
+### POST `/api/remote/config`
+
+Parametro form:
+
+```text
+url=https://admin.example.net
+```
+
+Vincoli:
+
+- solo schema HTTPS;
+- nessuna query string;
+- nessun fragment;
+- lunghezza massima validata;
+- URL vuota = AdminSensor Remote disabilitato.
+
+Il salvataggio non rigenera il token per-device.
+
+### GET `/api/remote/status`
+
+Restituisce diagnostica del sottosistema remoto:
+
+```text
+initialized
+configured
+approved
+transport_active
+state
+device_id
+enroll_attempts
+last_enroll_http_code
+ws_connects
+ws_disconnects
+requests
+responses
+last_activity_age_ms
+last_error
+```
+
+Stati tipici:
+
+```text
+OFF
+WAIT_NETWORK
+WAIT_TIME
+ENROLLING
+PENDING
+APPROVED
+CONNECTING
+ONLINE
+RECONNECT
+DENIED
+ERROR
+```
+
+### POST `/api/remote/retry`
+
+Forza un nuovo tentativo di enrollment/reconnect senza modificare identità o token.
+
+### POST `/api/remote/reset`
+
+Disabilita AdminSensor Remote cancellando la URL del portale. Il token per-device viene deliberatamente preservato, così la stessa unità mantiene l'identità se riconfigurata successivamente.
+
+### Tunnel remoto
+
+Dopo l'approvazione lato portale il firmware apre una sessione WSS autenticata con `Authorization: Bearer <device_token>`.
+
+Le richieste ricevute dal tunnel sono inoltrate al WebServer locale con le credenziali Web correnti del dispositivo. Sono ammessi soltanto:
+
+```text
+GET
+POST
+HEAD
+```
+
+Sono inoltre applicati controlli sul path e limiti dimensionali:
+
+```text
+request body massimo   12.288 byte
+risposta locale massima 24.576 byte
+messaggio WS massimo    38.000 byte
+```
+
+### TLS AdminSensor
+
+HTTPS e WSS usano i trust anchor compilati in `src/remote_trust.h`. La baseline contiene ISRG Root X1/X2. Una URL sintatticamente valida può quindi non essere raggiungibile se la catena TLS del portale non è compatibile con questi root.
+
 ## POST `/save`
 
 Riceve il form di configurazione, applica la validazione, salva i namespace NVS interessati e riavvia.
@@ -112,14 +231,16 @@ La validazione finale viene eseguita sull'oggetto configurazione completo, compr
 
 ## GET `/factory`
 
-Cancella:
+Cancella nella baseline corrente:
 
 ```text
 sensorhub
 sensorhub_nesa
 ```
 
-quindi riavvia con i default firmware. L'endpoint richiede autenticazione e ripristina anche `admin/admin`.
+quindi riavvia con i default firmware. L'endpoint richiede autenticazione e ripristina anche `admin/admin` per la configurazione principale.
+
+**Nota:** il namespace AdminSensor `remote` non viene cancellato da questo endpoint. Per disabilitare il portale remoto usare `/api/remote/reset`. Questa semantica è segnalata come candidato di hardening perché un factory reset completo potrebbe ragionevolmente includere anche lo stato remoto.
 
 ## OTA `/update`
 
@@ -132,9 +253,9 @@ Il POST è protetto in due punti:
 
 Questa doppia verifica evita che un client non autenticato possa iniziare a scrivere dati nella partizione OTA prima della verifica delle credenziali.
 
-## Autenticazione
+## Autenticazione locale
 
-La baseline usa HTTP Basic e non HTTPS Web. L'AP di manutenzione usa:
+La baseline usa HTTP Basic e non HTTPS Web sulla LAN. L'AP di manutenzione usa:
 
 ```text
 http://192.168.4.1/
@@ -142,8 +263,10 @@ http://192.168.4.1/
 
 La password factory è `admin`, modificabile dalla configurazione.
 
-Le credenziali sono memorizzate in NVS senza cifratura per scelta progettuale; non vengono però restituite dalle API di configurazione.
+Le credenziali sono memorizzate in NVS senza cifratura applicativa; non vengono però restituite dalle API di configurazione.
 
 ## Note operative
 
-La Web UI effettua refresh periodici tramite `/api/status`. In presenza di molti accessi consecutivi, i parametri `free_heap`, `min_free_heap`, `largest_free_block` e `heap_fragmentation_pct` permettono di verificare direttamente l'effetto sulla memoria del dispositivo.
+La Web UI effettua refresh periodici tramite `/api/status`. In presenza di molti accessi consecutivi o sessioni AdminSensor, i parametri `free_heap`, `min_free_heap`, `largest_free_block` e `heap_fragmentation_pct` permettono di verificare direttamente l'effetto sulla memoria del dispositivo.
+
+Per requisiti, trust boundary, failure mode e criteri di collaudo vedere [`ANALISI_FUNZIONALE_TECNICA.md`](ANALISI_FUNZIONALE_TECNICA.md).
