@@ -14,10 +14,11 @@
 class WebUi {
  public:
   WebUi(AppConfig &cfg, RuntimeData &data, ConfigStore &store, MqttManager &mqtt, SensorHub &sensors);
-  void begin();
+  virtual ~WebUi() = default;
+  virtual void begin();
   void loop();
 
- private:
+ protected:
   AppConfig &_cfg;
   RuntimeData &_data;
   ConfigStore &_store;
@@ -29,7 +30,7 @@ class WebUi {
   void handleRoot();
   void handleApiStatus();
   void handleApiConfig();
-  void handleConfig();
+  virtual void handleConfig();
   void handleSave();
   void handleFactory();
   void setupOta();

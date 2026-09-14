@@ -10,7 +10,7 @@
 #include "NesaConfigStore.h"
 #include "SensorHub.h"
 #include "MqttManager.h"
-#include "WebUi.h"
+#include "WifiWebUi.h"
 #include "remote_access.h"
 
 RTC_DATA_ATTR uint32_t rtcBootCount = 0;
@@ -20,7 +20,7 @@ RuntimeData data;
 ConfigStore store;
 SensorHub sensors;
 MqttManager mqtt;
-WebUi *web = nullptr;
+WifiWebUi *web = nullptr;
 
 uint32_t lastSensorReadMs = 0;
 uint32_t lastTelemetryMs = 0;
@@ -44,6 +44,10 @@ static String apSsid() {
 
 static void startMaintenanceAp() {
   WiFi.mode(WIFI_AP_STA);
+  // The hub is normally mains powered. Disabling modem sleep improves the
+  // responsiveness of the maintenance AP and reduces provisioning drop-outs.
+  WiFi.setSleep(false);
+
   const IPAddress apIp(192, 168, 4, 1);
   const IPAddress apGateway(192, 168, 4, 1);
   const IPAddress apSubnet(255, 255, 255, 0);
@@ -59,7 +63,10 @@ static void startMaintenanceAp() {
 static void startNetwork() {
   maintenanceMode = configButtonPressed(cfg.configButtonPin) || cfg.wifiSsid.isEmpty();
   if (maintenanceMode) startMaintenanceAp();
-  else WiFi.mode(WIFI_STA);
+  else {
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+  }
 
   if (!cfg.wifiSsid.isEmpty()) {
     WiFi.setHostname(cfg.deviceName.c_str());
@@ -110,7 +117,7 @@ void setup() {
   sensors.beginNesaSensors();
   mqtt.begin(cfg, data);
 
-  web = new WebUi(cfg, data, store, mqtt, sensors);
+  web = new WifiWebUi(cfg, data, store, mqtt, sensors);
   web->begin();
   initRemoteAccess(cfg);
 
