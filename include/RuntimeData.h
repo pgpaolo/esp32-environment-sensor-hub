@@ -38,6 +38,21 @@ struct RuntimeData {
   uint8_t inaDetectedAddress = 0xFF;
   String inaLastError;
 
+  bool nesaTaOk = false;
+  float nesaTaTemperatureC = NAN;
+  float nesaTaResistanceOhm = NAN;
+  uint8_t nesaTaFault = 0;
+  uint32_t nesaTaFailures = 0;
+  String nesaTaLastError;
+
+  bool nesaRsg1Ok = false;
+  int16_t nesaRsg1Raw = 0;
+  float nesaRsg1MilliVolts = NAN;
+  float nesaRsg1RadiationWm2 = NAN;
+  uint8_t nesaRsg1DetectedAddress = 0xFF;
+  uint32_t nesaRsg1Failures = 0;
+  String nesaRsg1LastError;
+
   bool uvOk = false;
   bool uvConsistent = true;
   uint16_t uvRawAdc = 0;
