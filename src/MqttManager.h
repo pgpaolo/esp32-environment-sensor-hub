@@ -30,6 +30,10 @@ class MqttManager {
   uint16_t _currentBackoffSec = 0;
   bool _lastObservedConnected = false;
 
+  // Reused across publishes to avoid allocating/freeing a multi-kilobyte
+  // String every telemetry cycle and reduce long-term heap fragmentation.
+  String _payloadBuffer;
+
   bool ensureConnected();
   void observeConnectionState();
   void registerPublishResult(bool ok);
